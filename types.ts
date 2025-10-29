@@ -41,3 +41,37 @@ export interface ApplyResult {
   newHtml: string;
   error?: string;
 }
+
+// ========== Sprint 3: Image Types ==========
+
+export interface UploadedImage {
+  id: string;
+  file: File;
+  dataUrl: string; // Base64 data URL (data:image/png;base64,...)
+  fileName: string;
+  mimeType: string;
+  width: number;
+  height: number;
+  sizeInBytes: number;
+  uploadedAt: Date;
+  
+  // AI generated info
+  altText?: string;
+  description?: string;
+  suggestedPositions?: ImagePosition[];
+}
+
+export interface ImagePosition {
+  targetSelector: string;
+  reason: string;
+  priority: 'high' | 'medium' | 'low';
+  code: string; // <img> tag template
+  action: 'replace' | 'insert_before' | 'insert_after';
+}
+
+export interface ImageAnalysisResult {
+  description: string;
+  altText: string;
+  altVariations: string[]; // Alternative alt texts
+  suggestedPositions: ImagePosition[];
+}
