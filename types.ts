@@ -75,3 +75,53 @@ export interface ImageAnalysisResult {
   altVariations: string[]; // Alternative alt texts
   suggestedPositions: ImagePosition[];
 }
+
+// ========== Sprint 4: SEO Types ==========
+
+export interface SeoAnalysis {
+  score: number; // 0-100
+  breakdown: SeoScoreBreakdown;
+  issues: SeoIssue[];
+  suggestions: SeoSuggestion[];
+  keywords: KeywordAnalysis[];
+}
+
+export interface SeoScoreBreakdown {
+  title: number; // 0-20
+  metaDescription: number; // 0-15
+  headingStructure: number; // 0-20
+  imageAlt: number; // 0-15
+  keywordDensity: number; // 0-15
+  contentLength: number; // 0-15
+}
+
+export interface SeoIssue {
+  type: 'critical' | 'warning' | 'info';
+  category: 'title' | 'meta' | 'heading' | 'image' | 'keyword' | 'content';
+  message: string;
+  fixCode?: string; // Code to fix the issue
+}
+
+export interface SeoSuggestion {
+  id: string;
+  priority: 'high' | 'medium' | 'low';
+  category: 'title' | 'meta' | 'heading' | 'keyword';
+  message: string;
+  beforeCode?: string;
+  afterCode: string;
+}
+
+export interface KeywordAnalysis {
+  keyword: string;
+  count: number;
+  density: number; // 0-100 (percentage)
+  isOptimal: boolean;
+}
+
+export interface HeadingStructure {
+  level: number; // 1-6
+  text: string;
+  index: number;
+  hasIssue: boolean;
+  issueType?: 'duplicate_h1' | 'skipped_level' | 'too_long';
+}
