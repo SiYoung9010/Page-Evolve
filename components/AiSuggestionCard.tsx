@@ -5,12 +5,14 @@ import { Suggestion } from '../types';
 interface Props {
   suggestion: Suggestion;
   onApply: (suggestion: Suggestion) => void;
+  onPreview: (suggestion: Suggestion) => void;
   isApplying: boolean;
 }
 
 const AiSuggestionCard: React.FC<Props> = ({
   suggestion,
   onApply,
+  onPreview,
   isApplying
 }) => {
   const priorityClasses = {
@@ -87,11 +89,18 @@ const AiSuggestionCard: React.FC<Props> = ({
 
           <div className="flex gap-2">
             <button
+                onClick={() => onPreview(suggestion)}
+                disabled={suggestion.applied || isApplying}
+                className="flex-1 px-4 py-2 rounded-md font-semibold text-sm text-gray-200 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-500 disabled:cursor-not-allowed transition-colors"
+            >
+                Preview
+            </button>
+            <button
               onClick={() => onApply(suggestion)}
               disabled={suggestion.applied || isApplying}
               className="flex-1 px-4 py-2 rounded-md font-semibold text-sm text-white bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors"
             >
-              {isApplying ? 'Applying...' : suggestion.applied ? 'Applied' : 'Apply Suggestion'}
+              {isApplying ? 'Applying...' : suggestion.applied ? 'Applied' : 'Apply'}
             </button>
           </div>
         </div>

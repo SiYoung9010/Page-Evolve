@@ -2,6 +2,7 @@ import React, { useState, useCallback } from 'react';
 import HtmlEditor from './components/HtmlEditor';
 import PreviewPanel from './components/PreviewPanel';
 import AiSuggestionCard from './components/AiSuggestionCard';
+import PreviewModal from './components/PreviewModal';
 import { analyzeHtml } from './services/geminiService';
 import { applySuggestion } from './services/htmlApplier';
 import { useHtmlHistory } from './hooks/useHtmlHistory';
@@ -11,7 +12,7 @@ const SAMPLE_HTML = `<!DOCTYPE html>
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale-1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>프리미엄 세럼 - 24시간 보습 지속</title>
   <style>
     body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; }
@@ -42,6 +43,8 @@ export default function App() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [applyingId, setApplyingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [previewData, setPreviewData] = useState<{ suggestion: Suggestion; newHtml: string } | null>(null);
+
 
   const {
     currentHtml,
@@ -52,14 +55,17 @@ export default function App() {
     canRedo,
   } = useHtmlHistory(SAMPLE_HTML);
   
-  // Use a separate state for the editor to allow typing without affecting history
   const [editorValue, setEditorValue] = useState(currentHtml);
   
-  // Sync editor when history changes
   React.useEffect(() => {
     setEditorValue(currentHtml);
   }, [currentHtml]);
 
+  const handleSyncEditor = () => {
+    if (editorValue !== currentHtml) {
+        addHistory(editorValue, 'Manual Edit');
+    }
+  };
 
   const handleAnalyze = useCallback(async () => {
     setIsAnalyzing(true);
@@ -74,7 +80,11 @@ export default function App() {
       }));
       setSuggestions(suggestionsWithMeta);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Analysis failed');
+      setError(
+        err instanceof Error
+          ? `AI analysis failed: ${err.message}. Please check your HTML structure.`
+          : 'An unknown error occurred during AI analysis.'
+      );
     } finally {
       setIsAnalyzing(false);
     }
@@ -84,7 +94,6 @@ export default function App() {
     setApplyingId(suggestion.id);
     setError(null);
     
-    // Use a timeout to allow the UI to update to the "Applying..." state
     await new Promise(resolve => setTimeout(resolve, 50));
 
     try {
@@ -98,6 +107,10 @@ export default function App() {
               : s
           )
         );
+        // Close preview modal if it's open
+        if (previewData) {
+            setPreviewData(null);
+        }
       } else {
         setError(`Failed to apply suggestion: ${result.error}`);
       }
@@ -106,7 +119,16 @@ export default function App() {
     } finally {
       setApplyingId(null);
     }
-  }, [currentHtml, addHistory]);
+  }, [currentHtml, addHistory, previewData]);
+
+  const handlePreview = useCallback((suggestion: Suggestion) => {
+    const result = applySuggestion(currentHtml, suggestion);
+    if (result.success) {
+        setPreviewData({ suggestion, newHtml: result.newHtml });
+    } else {
+        setError(`Could not generate preview: ${result.error}`);
+    }
+  }, [currentHtml]);
 
   const handleUndo = useCallback(() => {
     undo();
@@ -116,65 +138,81 @@ export default function App() {
     redo();
   }, [redo]);
 
-  return (
-    <div className="h-screen flex flex-col bg-gray-900 text-gray-100 font-sans">
-      <header className="bg-gray-800 border-b border-gray-700 p-3 flex justify-between items-center shadow-md z-10">
-        <h1 className="text-xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
-          🚀 Page Evolve - Sprint 2
-        </h1>
-        <div className="flex items-center gap-2">
-          <button onClick={handleUndo} disabled={!canUndo} className="px-3 py-1.5 text-sm font-semibold bg-gray-700 rounded-md disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-600 transition-colors" title="Undo (Ctrl+Z)">
-            ↶ Undo
-          </button>
-          <button onClick={handleRedo} disabled={!canRedo} className="px-3 py-1.5 text-sm font-semibold bg-gray-700 rounded-md disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-600 transition-colors" title="Redo (Ctrl+Y)">
-            Redo ↷
-          </button>
-          <button onClick={handleAnalyze} disabled={isAnalyzing} className="px-4 py-2 text-sm font-bold text-white bg-gradient-to-r from-purple-600 to-pink-600 rounded-md disabled:opacity-50 disabled:cursor-wait hover:from-purple-700 hover:to-pink-700 transition-all">
-            {isAnalyzing ? 'Analyzing...' : '🤖 AI Analyze'}
-          </button>
-        </div>
-      </header>
+  const isEditorSynced = editorValue === currentHtml;
 
-      <main className="flex-1 flex overflow-hidden">
-        <div className="w-1/3 flex flex-col border-r border-gray-700">
-            <h2 className="p-3 text-lg font-bold border-b border-gray-700 bg-gray-800">📝 HTML Editor</h2>
-            <div className="flex-1">
-                <HtmlEditor value={editorValue} onChange={setEditorValue} />
-            </div>
-        </div>
-        
-        <div className="w-1/3 flex flex-col border-r border-gray-700">
-            <h2 className="p-3 text-lg font-bold border-b border-gray-700 bg-gray-800">👁️ Live Preview</h2>
-            <div className="flex-1 bg-white">
-                <PreviewPanel html={currentHtml} />
-            </div>
-        </div>
-        
-        <div className="w-1/3 flex flex-col overflow-y-auto">
-            <h2 className="p-3 text-lg font-bold border-b border-gray-700 bg-gray-800 sticky top-0 z-10">💡 AI Suggestions</h2>
-            <div className="p-4 space-y-4">
-                {error && (
-                    <div className="p-3 bg-red-900/50 border border-red-500 rounded-lg text-red-200 text-sm">
-                        <strong>Error:</strong> {error}
-                    </div>
-                )}
-                {isAnalyzing && <p className="text-gray-400">Analyzing your page...</p>}
-                {!isAnalyzing && suggestions.length === 0 && (
-                    <div className="text-center text-gray-500 pt-8">
-                        <p>Click "AI Analyze" to get improvement suggestions.</p>
-                    </div>
-                )}
-                {suggestions.map(suggestion => (
-                    <AiSuggestionCard
-                        key={suggestion.id}
-                        suggestion={suggestion}
-                        onApply={handleApply}
-                        isApplying={applyingId === suggestion.id}
-                    />
-                ))}
-            </div>
-        </div>
-      </main>
-    </div>
+  return (
+    <>
+      {previewData && (
+          <PreviewModal 
+              beforeHtml={currentHtml}
+              afterHtml={previewData.newHtml}
+              onClose={() => setPreviewData(null)}
+              onApply={() => handleApply(previewData.suggestion)}
+          />
+      )}
+      <div className="h-screen flex flex-col bg-gray-900 text-gray-100 font-sans">
+        <header className="bg-gray-800 border-b border-gray-700 p-3 flex justify-between items-center shadow-md z-10">
+          <h1 className="text-xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
+            🚀 Page Evolve
+          </h1>
+          <div className="flex items-center gap-2">
+            <button onClick={handleSyncEditor} disabled={isEditorSynced} className="px-3 py-1.5 text-sm font-semibold bg-green-700 rounded-md disabled:opacity-40 disabled:cursor-not-allowed hover:bg-green-600 transition-colors" title="Save manual edits to history">
+                Sync Edits
+            </button>
+            <button onClick={handleUndo} disabled={!canUndo} className="px-3 py-1.5 text-sm font-semibold bg-gray-700 rounded-md disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-600 transition-colors" title="Undo (Ctrl+Z)">
+              ↶ Undo
+            </button>
+            <button onClick={handleRedo} disabled={!canRedo} className="px-3 py-1.5 text-sm font-semibold bg-gray-700 rounded-md disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-600 transition-colors" title="Redo (Ctrl+Y)">
+              Redo ↷
+            </button>
+            <button onClick={handleAnalyze} disabled={isAnalyzing} className="px-4 py-2 text-sm font-bold text-white bg-gradient-to-r from-purple-600 to-pink-600 rounded-md disabled:opacity-50 disabled:cursor-wait hover:from-purple-700 hover:to-pink-700 transition-all">
+              {isAnalyzing ? 'Analyzing...' : '🤖 AI Analyze'}
+            </button>
+          </div>
+        </header>
+
+        <main className="flex-1 flex overflow-hidden">
+          <div className="w-1/3 flex flex-col border-r border-gray-700">
+              <h2 className="p-3 text-lg font-bold border-b border-gray-700 bg-gray-800">📝 HTML Editor</h2>
+              <div className="flex-1">
+                  <HtmlEditor value={editorValue} onChange={setEditorValue} />
+              </div>
+          </div>
+          
+          <div className="w-1/3 flex flex-col border-r border-gray-700">
+              <h2 className="p-3 text-lg font-bold border-b border-gray-700 bg-gray-800">👁️ Live Preview</h2>
+              <div className="flex-1 bg-white">
+                  <PreviewPanel html={currentHtml} />
+              </div>
+          </div>
+          
+          <div className="w-1/3 flex flex-col overflow-y-auto">
+              <h2 className="p-3 text-lg font-bold border-b border-gray-700 bg-gray-800 sticky top-0 z-10">💡 AI Suggestions</h2>
+              <div className="p-4 space-y-4">
+                  {error && (
+                      <div className="p-3 bg-red-900/50 border border-red-500 rounded-lg text-red-200 text-sm">
+                          <strong>Error:</strong> {error}
+                      </div>
+                  )}
+                  {isAnalyzing && <p className="text-gray-400">Analyzing your page...</p>}
+                  {!isAnalyzing && suggestions.length === 0 && (
+                      <div className="text-center text-gray-500 pt-8">
+                          <p>Click "AI Analyze" to get improvement suggestions.</p>
+                      </div>
+                  )}
+                  {suggestions.map(suggestion => (
+                      <AiSuggestionCard
+                          key={suggestion.id}
+                          suggestion={suggestion}
+                          onApply={handleApply}
+                          onPreview={handlePreview}
+                          isApplying={applyingId === suggestion.id}
+                      />
+                  ))}
+              </div>
+          </div>
+        </main>
+      </div>
+    </>
   );
 }
