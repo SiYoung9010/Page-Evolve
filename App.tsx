@@ -4,13 +4,13 @@ import PreviewPanel from './components/PreviewPanel';
 import AiSuggestionCard from './components/AiSuggestionCard';
 import ImageUploader from './components/ImageUploader';
 import ImageLibrary from './components/ImageLibrary';
-import SeoPanel from './components/SeoPanel'; // Added
+import SeoPanel from './components/SeoPanel';
 import { analyzeHtml } from './services/geminiService';
 import { applySuggestion } from './services/htmlApplier';
-import { analyzeSeo } from './services/seoAnalyzer'; // Added
+import { analyzeSeo } from './services/seoAnalyzer';
 import { useHtmlHistory } from './hooks/useHtmlHistory';
 import { useImageUpload } from './hooks/useImageUpload';
-import { Suggestion, AnalysisResult, ImagePosition, SeoAnalysis } from './types'; // Modified
+import { Suggestion, AnalysisResult, ImagePosition, SeoAnalysis } from './types';
 
 const SAMPLE_HTML = `<!DOCTYPE html>
 <html lang="ko">
@@ -51,6 +51,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'suggestions' | 'images' | 'seo'>('suggestions');
   const [seoAnalysis, setSeoAnalysis] = useState<SeoAnalysis | null>(null);
   const [isAnalyzingSeo, setIsAnalyzingSeo] = useState(false);
+  const [showEditor, setShowEditor] = useState(false);
 
   const {
     currentHtml,
@@ -72,6 +73,33 @@ export default function App() {
     analyzeImage,
     removeImage,
   } = useImageUpload(currentHtml);
+
+  // Load editor visibility state from localStorage on mount
+  useEffect(() => {
+    const savedState = localStorage.getItem('pageEvolve-showEditor');
+    if (savedState) {
+      setShowEditor(savedState === 'true');
+    }
+  }, []);
+
+  // Save editor visibility state to localStorage on change
+  useEffect(() => {
+    localStorage.setItem('pageEvolve-showEditor', String(showEditor));
+  }, [showEditor]);
+  
+  // Add keyboard shortcut for toggling the editor
+  useEffect(() => {
+    const handleKeyPress = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'e') {
+        e.preventDefault();
+        setShowEditor(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyPress);
+    return () => {
+      window.removeEventListener('keydown', handleKeyPress);
+    };
+  }, []);
   
   useEffect(() => {
     setEditorValue(currentHtml);
@@ -91,7 +119,7 @@ export default function App() {
       setSuggestions(suggestionsWithMeta);
       setActiveTab('suggestions');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Analysis failed');
+      setError(err instanceof Error ? `AI Analysis Failed: ${err.message}\nPlease check your HTML structure.` : 'An unknown error occurred during AI analysis');
     } finally {
       setIsAnalyzing(false);
     }
@@ -164,68 +192,151 @@ export default function App() {
   }, [currentHtml, addHistory]);
   
   return (
-    <div className="h-screen flex flex-col bg-gray-900 text-gray-100 font-sans">
-      <header className="bg-gray-800 border-b border-gray-700 p-3 flex justify-between items-center shadow-md z-20 shrink-0">
-        <h1 className="text-xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
-          🚀 Page Evolve
-        </h1>
-        <div className="flex items-center gap-2">
-          <button onClick={undo} disabled={!canUndo} className="px-3 py-1.5 text-sm font-semibold bg-gray-700 rounded-md disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-600 transition-colors" title="Undo (Ctrl+Z)">
+    <div className="flex flex-col h-screen bg-gray-900 text-white">
+      <header className="flex justify-between items-center p-3 bg-gray-800 border-b border-gray-700 z-20">
+        <div className="flex items-center gap-4">
+          <h1 className="text-xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
+            🚀 Page Evolve
+          </h1>
+          
+          <button
+            onClick={() => setShowEditor(!showEditor)}
+            className={`px-3 py-1.5 rounded-md font-semibold text-sm transition-all ${
+              showEditor 
+                ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' 
+                : 'bg-blue-600 text-white hover:bg-blue-700'
+            }`}
+            title="Toggle Editor (Ctrl+E)"
+          >
+            {showEditor ? '📝 Hide Editor' : '📝 Edit HTML'}
+          </button>
+        </div>
+        
+        <div className="flex gap-2">
+           <button
+            onClick={undo}
+            disabled={!canUndo}
+            className="px-3 py-1.5 text-sm font-semibold bg-gray-700 rounded-md disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-600 transition-colors" title="Undo (Ctrl+Z)">
             ↶ Undo
           </button>
-          <button onClick={redo} disabled={!canRedo} className="px-3 py-1.5 text-sm font-semibold bg-gray-700 rounded-md disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-600 transition-colors" title="Redo (Ctrl+Y)">
+          <button
+            onClick={redo}
+            disabled={!canRedo}
+            className="px-3 py-1.5 text-sm font-semibold bg-gray-700 rounded-md disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-600 transition-colors" title="Redo (Ctrl+Y)">
             Redo ↷
           </button>
-           <button
+          <button
             onClick={handleSeoAnalyze}
             disabled={isAnalyzingSeo}
-            className="px-4 py-2 text-sm font-bold text-white bg-gradient-to-r from-green-600 to-teal-600 rounded-md disabled:opacity-50 disabled:cursor-wait hover:from-green-700 hover:to-teal-700 transition-all"
+            className="px-4 py-2 text-sm font-bold text-white bg-gradient-to-r from-green-600 to-emerald-600 rounded-md disabled:opacity-50"
           >
             {isAnalyzingSeo ? 'Checking...' : '📊 SEO Check'}
           </button>
-          <button onClick={handleAnalyze} disabled={isAnalyzing} className="px-4 py-2 text-sm font-bold text-white bg-gradient-to-r from-purple-600 to-pink-600 rounded-md disabled:opacity-50 disabled:cursor-wait hover:from-purple-700 hover:to-pink-700 transition-all">
+          <button
+            onClick={handleAnalyze}
+            disabled={isAnalyzing}
+            className="px-4 py-2 text-sm font-bold text-white bg-gradient-to-r from-purple-600 to-pink-600 rounded-md disabled:opacity-50"
+          >
             {isAnalyzing ? 'Analyzing...' : '🤖 AI Analyze'}
           </button>
         </div>
       </header>
 
       <main className="flex-1 flex overflow-hidden">
+        {showEditor && (
+          <div className="w-[600px] flex flex-col border-r border-gray-700 shrink-0">
+            <div className="p-3 bg-gray-800 border-b border-gray-700 flex justify-between items-center">
+              <h2 className="text-lg font-bold">📝 HTML Editor</h2>
+              <button
+                onClick={() => {
+                  if (editorValue !== currentHtml) {
+                    addHistory(editorValue, 'Manual edit');
+                  }
+                  setShowEditor(false);
+                }}
+                className="px-3 py-1 bg-purple-600 hover:bg-purple-700 rounded text-sm font-semibold"
+              >
+                ✓ Save & Close
+              </button>
+            </div>
+            <div className="flex-1 min-h-0">
+              <HtmlEditor value={editorValue} onChange={setEditorValue} />
+            </div>
+          </div>
+        )}
+
         <div className="flex-1 flex flex-col border-r border-gray-700 min-w-0">
-            <div className="h-1/2 flex flex-col border-b border-gray-700">
-                <h2 className="p-3 text-lg font-bold bg-gray-800 shrink-0">📝 HTML Editor</h2>
-                <div className="flex-1 min-h-0">
-                    <HtmlEditor value={editorValue} onChange={setEditorValue} />
-                </div>
+          <div className="p-3 bg-gray-800 border-b border-gray-700 flex justify-between items-center">
+            <h2 className="text-lg font-bold">👁️ Live Preview</h2>
+            <div className="text-sm text-gray-400">
+              {!showEditor && '💡 Press Ctrl+E or click "Edit HTML" to modify the code'}
             </div>
-            <div className="h-1/2 flex flex-col">
-                <h2 className="p-3 text-lg font-bold bg-gray-800 shrink-0">👁️ Live Preview</h2>
-                <div className="flex-1 bg-white min-h-0">
-                    <PreviewPanel html={currentHtml} />
-                </div>
-            </div>
+          </div>
+          <div className="flex-1 bg-white min-h-0">
+            <PreviewPanel html={currentHtml} />
+          </div>
         </div>
-        
-        <div className="w-[400px] flex flex-col shrink-0">
-          <div className="flex border-b border-gray-700 bg-gray-800 shrink-0">
-            <button onClick={() => setActiveTab('suggestions')} className={`flex-1 p-3 text-sm font-bold transition-colors ${activeTab === 'suggestions' ? 'bg-gray-900 text-purple-400 border-b-2 border-purple-400' : 'text-gray-400 hover:bg-gray-700'}`}>
+
+        <div className="w-[450px] flex flex-col shrink-0 bg-gray-800">
+          <div className="flex border-b border-gray-700 shrink-0">
+            <button
+              onClick={() => setActiveTab('suggestions')}
+              className={`flex-1 p-3 text-sm font-bold transition-colors ${
+                activeTab === 'suggestions'
+                  ? 'bg-gray-900 text-purple-400 border-b-2 border-purple-400'
+                  : 'text-gray-400 hover:bg-gray-700'
+              }`}
+            >
               💡 AI Suggestions
             </button>
-            <button onClick={() => setActiveTab('images')} className={`flex-1 p-3 text-sm font-bold transition-colors ${activeTab === 'images' ? 'bg-gray-900 text-purple-400 border-b-2 border-purple-400' : 'text-gray-400 hover:bg-gray-700'}`}>
+            <button
+              onClick={() => setActiveTab('images')}
+              className={`flex-1 p-3 text-sm font-bold transition-colors ${
+                activeTab === 'images'
+                  ? 'bg-gray-900 text-purple-400 border-b-2 border-purple-400'
+                  : 'text-gray-400 hover:bg-gray-700'
+              }`}
+            >
               🖼️ Images ({images.length})
             </button>
-            <button onClick={() => setActiveTab('seo')} className={`flex-1 p-3 text-sm font-bold transition-colors ${activeTab === 'seo' ? 'bg-gray-900 text-green-400 border-b-2 border-green-400' : 'text-gray-400 hover:bg-gray-700'}`}>
-              📊 SEO {seoAnalysis && <span className={`font-bold ml-1 ${seoAnalysis.score > 80 ? 'text-green-400' : seoAnalysis.score > 50 ? 'text-yellow-400' : 'text-red-400'}`}>({seoAnalysis.score})</span>}
+            <button
+              onClick={() => setActiveTab('seo')}
+              className={`flex-1 p-3 text-sm font-bold transition-colors ${
+                activeTab === 'seo'
+                  ? 'bg-gray-900 text-green-400 border-b-2 border-green-400'
+                  : 'text-gray-400 hover:bg-gray-700'
+              }`}
+            >
+              📊 SEO
+              {seoAnalysis && (
+                <span className={`font-bold ml-1 ${
+                  seoAnalysis.score >= 80 ? 'text-green-400' :
+                  seoAnalysis.score > 50 ? 'text-yellow-400' :
+                  'text-red-400'
+                }`}>
+                  ({seoAnalysis.score})
+                </span>
+              )}
             </button>
           </div>
-          
+
           <div className="flex-1 overflow-y-auto">
             {activeTab === 'suggestions' && (
               <div className="p-4 space-y-4">
-                {(error && !uploadError) && <div className="p-3 bg-red-900/50 border border-red-500 rounded-lg text-red-200 text-sm"><strong>Error:</strong> {error}</div>}
-                {isAnalyzing && <p className="text-gray-400 text-center p-4">Analyzing your page...</p>}
+                {error && !uploadError && (
+                  <div className="p-3 bg-red-900/50 border border-red-500 rounded-lg text-red-200 text-sm">
+                    <strong>Error:</strong> {error}
+                  </div>
+                )}
+                {isAnalyzing && (
+                  <div className="text-center text-gray-400 p-8">
+                    <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-purple-500 mx-auto mb-3"></div>
+                    <p>Analyzing your page...</p>
+                  </div>
+                )}
                 {!isAnalyzing && suggestions.length === 0 && (
-                  <div className="text-center text-gray-500 pt-8">
-                    <p>Click "AI Analyze" to get improvement suggestions.</p>
+                  <div className="text-center text-gray-500 pt-8 space-y-3">
+                    <p>Click "🤖 AI Analyze" to get improvement suggestions.</p>
                   </div>
                 )}
                 {suggestions.map(suggestion => (
@@ -238,17 +349,27 @@ export default function App() {
                 ))}
               </div>
             )}
-            
+
             {activeTab === 'images' && (
               <div>
                 <ImageUploader onUpload={uploadImages} isUploading={isUploading} />
-                {(uploadError) && <div className="mx-4 mb-4 p-3 bg-red-900/50 border border-red-500 rounded-lg text-red-200 text-sm">{uploadError}</div>}
-                <ImageLibrary images={images} analyzingImageId={analyzingImageId} onAnalyze={analyzeImage} onInsert={handleImageInsert} onDelete={removeImage} />
+                {(uploadError || (error && activeTab === 'images')) && (
+                  <div className="mx-4 mb-4 p-3 bg-red-900/50 border border-red-500 rounded-lg text-red-200 text-sm">
+                    {uploadError || error}
+                  </div>
+                )}
+                <ImageLibrary
+                  images={images}
+                  analyzingImageId={analyzingImageId}
+                  onAnalyze={analyzeImage}
+                  onInsert={handleImageInsert}
+                  onDelete={removeImage}
+                />
               </div>
             )}
 
             {activeTab === 'seo' && (
-                <SeoPanel analysis={seoAnalysis} isAnalyzing={isAnalyzingSeo} />
+              <SeoPanel analysis={seoAnalysis} isAnalyzing={isAnalyzingSeo} />
             )}
           </div>
         </div>
