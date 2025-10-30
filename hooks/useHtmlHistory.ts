@@ -1,3 +1,4 @@
+
 // hooks/useHtmlHistory.ts
 import { useState, useCallback } from 'react';
 import { HtmlHistory } from '../types';
@@ -50,6 +51,26 @@ export const useHtmlHistory = (initialHtml: string) => {
   }, [currentIndex]);
 
   /**
+   * Updates the HTML of the current history entry without creating a new one.
+   * This is used for live editing to prevent polluting the history.
+   */
+  const updateCurrentHistoryEntry = useCallback((html: string) => {
+    setHistory(prev => {
+        if (prev[currentIndex]?.html === html) {
+            return prev; // Return original state to avoid re-render
+        }
+        const newHistory = [...prev];
+        newHistory[currentIndex] = {
+            ...newHistory[currentIndex],
+            html: html,
+            action: 'Manual Edit',
+            timestamp: new Date(),
+        };
+        return newHistory;
+    });
+  }, [currentIndex]);
+
+  /**
    * Moves the current state back one step in history.
    */
   const undo = useCallback(() => {
@@ -89,6 +110,7 @@ export const useHtmlHistory = (initialHtml: string) => {
     history,
     currentIndex,
     addHistory,
+    updateCurrentHistoryEntry,
     undo,
     redo,
     canUndo,

@@ -20,7 +20,7 @@ export const exportPreviewAsImage = async (
   
   const canvas = await html2canvas(body, {
     backgroundColor: '#ffffff',
-    scale: 2, // For higher resolution
+    scale: 3, // Increased scale for higher resolution
     useCORS: true,
     allowTaint: true,
     logging: false,
@@ -64,7 +64,7 @@ export const exportFullPageAsImage = async (
 
   const canvas = await html2canvas(body, {
     backgroundColor: '#ffffff',
-    scale: 2,
+    scale: 3, // Increased scale for higher resolution
     useCORS: true,
     allowTaint: true,
     logging: false,

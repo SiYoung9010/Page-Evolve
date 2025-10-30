@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import HtmlEditor from './components/HtmlEditor';
 import PreviewPanel from './components/PreviewPanel';
@@ -68,14 +69,13 @@ export default function App() {
     history,
     currentIndex,
     addHistory,
+    updateCurrentHistoryEntry,
     undo,
     redo,
     canUndo,
     canRedo,
     loadHistory,
   } = useHtmlHistory(SAMPLE_HTML);
-  
-  const [editorValue, setEditorValue] = useState(currentHtml);
   
   const {
     images,
@@ -112,10 +112,6 @@ export default function App() {
     };
   }, []);
   
-  useEffect(() => {
-    setEditorValue(currentHtml);
-  }, [currentHtml]);
-
   const handleAnalyze = useCallback(async () => {
     setIsAnalyzing(true);
     setError(null);
@@ -397,7 +393,7 @@ export default function App() {
               </button>
             </div>
             <div className="flex-1 min-h-0">
-              <HtmlEditor value={editorValue} onChange={setEditorValue} />
+              <HtmlEditor value={currentHtml} onChange={updateCurrentHistoryEntry} />
             </div>
           </div>
         )}
