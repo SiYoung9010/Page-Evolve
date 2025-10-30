@@ -116,6 +116,12 @@ export const useImageUpload = (currentHtml: string) => {
     setImages([]);
     clearAllImagesFromStorage();
   }, []);
+  
+  const loadUploadedImages = useCallback((loadedImages: Omit<UploadedImage, 'file'>[]) => {
+      // The loaded images don't have the 'file' object, which is expected.
+      // We'll cast it to UploadedImage[] for state consistency.
+      setImages(loadedImages as UploadedImage[]);
+  }, []);
 
   return {
     images,
@@ -125,6 +131,7 @@ export const useImageUpload = (currentHtml: string) => {
     uploadImages: uploadAndProcessFiles,
     analyzeImage,
     removeImage,
-    clearAllImages: clearAll
+    clearAllImages: clearAll,
+    loadUploadedImages,
   };
 };

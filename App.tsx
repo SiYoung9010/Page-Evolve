@@ -1,16 +1,19 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import HtmlEditor from './components/HtmlEditor';
 import PreviewPanel from './components/PreviewPanel';
 import AiSuggestionCard from './components/AiSuggestionCard';
 import ImageUploader from './components/ImageUploader';
 import ImageLibrary from './components/ImageLibrary';
 import SeoPanel from './components/SeoPanel';
+import ReferencePanel from './components/ReferencePanel';
 import { analyzeHtml } from './services/geminiService';
 import { applySuggestion } from './services/htmlApplier';
 import { analyzeSeo } from './services/seoAnalyzer';
+import { createProjectData, downloadProject, loadProjectFromFile, saveRecentProjects, loadRecentProjects } from './services/projectService';
+import { exportPreviewAsImage, exportFullPageAsImage } from './services/exportService';
 import { useHtmlHistory } from './hooks/useHtmlHistory';
 import { useImageUpload } from './hooks/useImageUpload';
-import { Suggestion, AnalysisResult, ImagePosition, SeoAnalysis } from './types';
+import { Suggestion, AnalysisResult, ImagePosition, SeoAnalysis, Reference, ProjectMetadata, ProjectData } from './types';
 
 const SAMPLE_HTML = `<!DOCTYPE html>
 <html lang="ko">
@@ -48,18 +51,28 @@ export default function App() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [applyingId, setApplyingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'suggestions' | 'images' | 'seo'>('suggestions');
+  const [activeTab, setActiveTab] = useState<'suggestions' | 'images' | 'seo' | 'references'>('suggestions');
   const [seoAnalysis, setSeoAnalysis] = useState<SeoAnalysis | null>(null);
   const [isAnalyzingSeo, setIsAnalyzingSeo] = useState(false);
   const [showEditor, setShowEditor] = useState(false);
+  
+  // Sprint 5 State
+  const [projectName, setProjectName] = useState('Untitled Project');
+  const [isExporting, setIsExporting] = useState(false);
+  const [references, setReferences] = useState<Reference[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
+  const loadFileInputRef = useRef<HTMLInputElement>(null);
 
   const {
     currentHtml,
+    history,
+    currentIndex,
     addHistory,
     undo,
     redo,
     canUndo,
     canRedo,
+    loadHistory,
   } = useHtmlHistory(SAMPLE_HTML);
   
   const [editorValue, setEditorValue] = useState(currentHtml);
@@ -72,9 +85,9 @@ export default function App() {
     uploadImages,
     analyzeImage,
     removeImage,
+    loadUploadedImages,
   } = useImageUpload(currentHtml);
 
-  // Load editor visibility state from localStorage on mount
   useEffect(() => {
     const savedState = localStorage.getItem('pageEvolve-showEditor');
     if (savedState) {
@@ -82,12 +95,10 @@ export default function App() {
     }
   }, []);
 
-  // Save editor visibility state to localStorage on change
   useEffect(() => {
     localStorage.setItem('pageEvolve-showEditor', String(showEditor));
   }, [showEditor]);
   
-  // Add keyboard shortcut for toggling the editor
   useEffect(() => {
     const handleKeyPress = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'e') {
@@ -191,28 +202,158 @@ export default function App() {
     }
   }, [currentHtml, addHistory]);
   
+  // --- Sprint 5 Handlers ---
+
+  const handleSaveProject = useCallback(() => {
+    const project = createProjectData(
+      projectName,
+      currentHtml,
+      suggestions,
+      images,
+      seoAnalysis,
+      history,
+      currentIndex
+    );
+    downloadProject(project);
+
+    const metadata: ProjectMetadata = {
+      id: project.id, name: project.name, createdAt: project.createdAt,
+      updatedAt: project.updatedAt, tags: project.tags,
+    };
+    const recent = loadRecentProjects();
+    const existingIndex = recent.findIndex(p => p.id === metadata.id);
+    if (existingIndex > -1) recent.splice(existingIndex, 1);
+    recent.unshift(metadata);
+    saveRecentProjects(recent);
+
+  }, [projectName, currentHtml, suggestions, images, seoAnalysis, history, currentIndex]);
+
+  const restoreProjectState = useCallback((project: ProjectData) => {
+    setProjectName(project.name);
+    setSuggestions(project.suggestions);
+    setSeoAnalysis(project.seoAnalysis);
+    loadHistory(project.history, project.historyIndex);
+    loadUploadedImages(project.images);
+    alert(`Project "${project.name}" loaded successfully!`);
+  }, [loadHistory, loadUploadedImages]);
+
+
+  const handleLoadProjectFile = useCallback(async (file: File) => {
+    if (!file || !file.type.includes('json')) {
+      alert('Please select a valid JSON project file.');
+      return;
+    }
+    try {
+      const project = await loadProjectFromFile(file);
+      restoreProjectState(project);
+    } catch (err) {
+      alert('Failed to load project: ' + (err instanceof Error ? err.message : 'Unknown error'));
+    }
+  }, [restoreProjectState]);
+  
+  const handleExportImage = useCallback(async (type: 'visible' | 'full') => {
+    setIsExporting(true);
+    try {
+      const exportFn = type === 'full' ? exportFullPageAsImage : exportPreviewAsImage;
+      const fileName = `${projectName.replace(/\s+/g, '_')}_${type}.png`;
+      await exportFn('preview-iframe', fileName);
+    } catch (err) {
+      alert('Export failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+    } finally {
+      setIsExporting(false);
+    }
+  }, [projectName]);
+  
+  const handleAddReference = useCallback(() => {
+    const title = prompt('Enter a title for this reference:');
+    if (!title) return;
+    
+    const newRef: Reference = {
+      id: crypto.randomUUID(),
+      title,
+      category: prompt('Category (e.g., 보습):') || 'Uncategorized',
+      tags: [],
+      content: currentHtml,
+      notes: prompt('Notes:') || '',
+      createdAt: new Date(),
+      isFavorite: false,
+    };
+    
+    setReferences(prev => [newRef, ...prev]);
+  }, [currentHtml]);
+
+  const handleDeleteReference = useCallback((id: string) => {
+    if (confirm('Are you sure you want to delete this reference?')) {
+      setReferences(prev => prev.filter(r => r.id !== id));
+    }
+  }, []);
+
+  const handleInsertReference = useCallback((content: string) => {
+    addHistory(content, 'Inserted from reference');
+  }, [addHistory]);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    
+    if (e.dataTransfer.files && e.dataTransfer.files.length === 1) {
+      handleLoadProjectFile(e.dataTransfer.files[0]);
+    } else {
+      alert('Please drop a single project file.');
+    }
+  }, [handleLoadProjectFile]);
+
+
   return (
-    <div className="flex flex-col h-screen bg-gray-900 text-white">
+    <div className="flex flex-col h-screen bg-gray-900 text-white" onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
+      {isDragging && (
+        <div className="absolute inset-0 bg-black/80 flex items-center justify-center z-50 pointer-events-none">
+          <div className="p-8 border-4 border-dashed border-purple-500 rounded-lg">
+            <h2 className="text-2xl font-bold text-white">Drop Project File to Load</h2>
+          </div>
+        </div>
+      )}
       <header className="flex justify-between items-center p-3 bg-gray-800 border-b border-gray-700 z-20">
         <div className="flex items-center gap-4">
           <h1 className="text-xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
             🚀 Page Evolve
           </h1>
-          
-          <button
-            onClick={() => setShowEditor(!showEditor)}
-            className={`px-3 py-1.5 rounded-md font-semibold text-sm transition-all ${
-              showEditor 
-                ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' 
-                : 'bg-blue-600 text-white hover:bg-blue-700'
-            }`}
-            title="Toggle Editor (Ctrl+E)"
-          >
-            {showEditor ? '📝 Hide Editor' : '📝 Edit HTML'}
-          </button>
+          <input
+            type="text"
+            value={projectName}
+            onChange={(e) => setProjectName(e.target.value)}
+            className="bg-gray-700 text-sm rounded px-2 py-1 border border-gray-600 focus:ring-2 focus:ring-purple-500 focus:outline-none w-48"
+            placeholder="Untitled Project"
+            title="Project Name"
+          />
         </div>
         
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+           <button
+            onClick={handleSaveProject}
+            className="px-3 py-1.5 text-sm font-semibold bg-blue-600 rounded-md hover:bg-blue-700 transition-colors" title="Save Project">
+            💾 Save
+          </button>
+           <button
+            onClick={() => loadFileInputRef.current?.click()}
+            className="px-3 py-1.5 text-sm font-semibold bg-blue-600 rounded-md hover:bg-blue-700 transition-colors" title="Load Project">
+            📂 Load
+          </button>
+          <input type="file" ref={loadFileInputRef} onChange={(e) => e.target.files && handleLoadProjectFile(e.target.files[0])} className="hidden" accept=".json" />
+
            <button
             onClick={undo}
             disabled={!canUndo}
@@ -247,16 +388,12 @@ export default function App() {
           <div className="w-[600px] flex flex-col border-r border-gray-700 shrink-0">
             <div className="p-3 bg-gray-800 border-b border-gray-700 flex justify-between items-center">
               <h2 className="text-lg font-bold">📝 HTML Editor</h2>
-              <button
-                onClick={() => {
-                  if (editorValue !== currentHtml) {
-                    addHistory(editorValue, 'Manual edit');
-                  }
-                  setShowEditor(false);
-                }}
-                className="px-3 py-1 bg-purple-600 hover:bg-purple-700 rounded text-sm font-semibold"
+               <button
+                onClick={() => setShowEditor(!showEditor)}
+                className="px-3 py-1 bg-gray-700 text-gray-300 hover:bg-gray-600 rounded text-sm font-semibold"
+                title="Toggle Editor (Ctrl+E)"
               >
-                ✓ Save & Close
+                {showEditor ? '✓ Close Editor' : '📝 Edit HTML'}
               </button>
             </div>
             <div className="flex-1 min-h-0">
@@ -268,8 +405,32 @@ export default function App() {
         <div className="flex-1 flex flex-col border-r border-gray-700 min-w-0">
           <div className="p-3 bg-gray-800 border-b border-gray-700 flex justify-between items-center">
             <h2 className="text-lg font-bold">👁️ Live Preview</h2>
-            <div className="text-sm text-gray-400">
-              {!showEditor && '💡 Press Ctrl+E or click "Edit HTML" to modify the code'}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => handleExportImage('visible')}
+                disabled={isExporting}
+                className="px-3 py-1 text-xs font-semibold bg-green-700 rounded-md hover:bg-green-600 transition-colors disabled:opacity-50"
+              >
+                {isExporting ? '...' : '📷 Export View'}
+              </button>
+               <button
+                onClick={() => handleExportImage('full')}
+                disabled={isExporting}
+                className="px-3 py-1 text-xs font-semibold bg-green-700 rounded-md hover:bg-green-600 transition-colors disabled:opacity-50"
+              >
+                {isExporting ? '...' : '📜 Export Full'}
+              </button>
+              <button
+                onClick={() => setShowEditor(!showEditor)}
+                className={`px-3 py-1.5 rounded-md font-semibold text-sm transition-all ${
+                  showEditor 
+                    ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' 
+                    : 'bg-blue-600 text-white hover:bg-blue-700'
+                }`}
+                title="Toggle Editor (Ctrl+E)"
+              >
+                {showEditor ? '📝 Hide Editor' : '📝 Edit HTML'}
+              </button>
             </div>
           </div>
           <div className="flex-1 bg-white min-h-0">
@@ -287,7 +448,7 @@ export default function App() {
                   : 'text-gray-400 hover:bg-gray-700'
               }`}
             >
-              💡 AI Suggestions
+              💡 Suggestions
             </button>
             <button
               onClick={() => setActiveTab('images')}
@@ -317,6 +478,16 @@ export default function App() {
                   ({seoAnalysis.score})
                 </span>
               )}
+            </button>
+             <button
+              onClick={() => setActiveTab('references')}
+              className={`flex-1 p-3 text-sm font-bold transition-colors ${
+                activeTab === 'references'
+                  ? 'bg-gray-900 text-blue-400 border-b-2 border-blue-400'
+                  : 'text-gray-400 hover:bg-gray-700'
+              }`}
+            >
+              📚 Refs ({references.length})
             </button>
           </div>
 
@@ -370,6 +541,15 @@ export default function App() {
 
             {activeTab === 'seo' && (
               <SeoPanel analysis={seoAnalysis} isAnalyzing={isAnalyzingSeo} />
+            )}
+
+            {activeTab === 'references' && (
+                <ReferencePanel
+                    references={references}
+                    onAdd={handleAddReference}
+                    onDelete={handleDeleteReference}
+                    onInsert={handleInsertReference}
+                />
             )}
           </div>
         </div>

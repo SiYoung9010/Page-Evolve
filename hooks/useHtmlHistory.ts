@@ -51,27 +51,34 @@ export const useHtmlHistory = (initialHtml: string) => {
 
   /**
    * Moves the current state back one step in history.
-   * @returns The HTML from the previous state, or null if at the beginning.
    */
   const undo = useCallback(() => {
     if (currentIndex > 0) {
       setCurrentIndex(prev => prev - 1);
-      return history[currentIndex - 1].html;
     }
-    return null;
-  }, [currentIndex, history]);
+  }, [currentIndex]);
 
   /**
    * Moves the current state forward one step in history.
-   * @returns The HTML from the next state, or null if at the end.
    */
   const redo = useCallback(() => {
     if (currentIndex < history.length - 1) {
       setCurrentIndex(prev => prev + 1);
-      return history[currentIndex + 1].html;
     }
-    return null;
   }, [currentIndex, history]);
+  
+  /**
+   * Replaces the entire history state. Used for loading a project.
+   */
+  const loadHistory = useCallback((newHistory: HtmlHistory[], newIndex: number) => {
+    if (Array.isArray(newHistory) && newHistory.length > 0 && newIndex >= 0 && newIndex < newHistory.length) {
+      setHistory(newHistory);
+      setCurrentIndex(newIndex);
+    } else {
+      console.error("Invalid history data provided for loading.");
+    }
+  }, []);
+
 
   const currentHtml = history[currentIndex]?.html ?? initialHtml;
   const canUndo = currentIndex > 0;
@@ -80,11 +87,12 @@ export const useHtmlHistory = (initialHtml: string) => {
   return {
     currentHtml,
     history,
+    currentIndex,
     addHistory,
     undo,
     redo,
     canUndo,
     canRedo,
-    currentIndex,
+    loadHistory,
   };
 };

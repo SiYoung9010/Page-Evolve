@@ -125,3 +125,47 @@ export interface HeadingStructure {
   hasIssue: boolean;
   issueType?: 'duplicate_h1' | 'skipped_level' | 'too_long';
 }
+
+// ========== Sprint 5: Project Management ==========
+
+export interface ProjectData {
+  id: string;
+  name: string;
+  createdAt: Date;
+  updatedAt: Date;
+  
+  // 현재 상태
+  html: string;
+  suggestions: Suggestion[];
+  images: Omit<UploadedImage, 'file'>[]; // File 객체 제외
+  seoAnalysis: SeoAnalysis | null;
+  
+  // 히스토리
+  history: HtmlHistory[];
+  historyIndex: number;
+  
+  // 메타데이터
+  tags: string[]; // ['세럼', '보습', '고가']
+  notes: string; // 사용자 메모
+}
+
+export interface ProjectMetadata {
+  id: string;
+  name: string;
+  createdAt: Date;
+  updatedAt: Date;
+  tags: string[];
+  thumbnail?: string; // Base64 썸네일
+}
+
+// ========== Sprint 5: Reference Library ==========
+export interface Reference {
+  id: string;
+  title: string;
+  category: string; // '보습', '세럼', '클렌징' 등
+  tags: string[];
+  content: string; // HTML 또는 마크다운
+  notes: string;
+  createdAt: Date;
+  isFavorite: boolean;
+}

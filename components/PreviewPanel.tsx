@@ -1,4 +1,3 @@
-
 import React from 'react';
 import DOMPurify from 'dompurify';
 
@@ -12,6 +11,7 @@ const PreviewPanel: React.FC<Props> = ({ html }) => {
   return (
     <div className="h-full border border-gray-700 rounded-lg overflow-auto bg-white">
       <iframe
+        id="preview-iframe" // Added ID for targeting
         srcDoc={sanitizedHtml}
         className="w-full h-full"
         sandbox="allow-scripts allow-same-origin"
