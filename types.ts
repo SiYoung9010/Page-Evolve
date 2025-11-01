@@ -1,5 +1,21 @@
 // types.ts
 
+// FIX: Added ApplyResult for htmlApplier service.
+export interface ApplyResult {
+  success: boolean;
+  newHtml: string;
+  error?: string;
+}
+
+// FIX: Added HtmlHistory for legacy useHtmlHistory hook.
+export interface HtmlHistory {
+  id: string;
+  html: string;
+  timestamp: Date;
+  action: string;
+  suggestionId?: string;
+}
+
 export interface Suggestion {
   id: string;
   type: 'image' | 'text' | 'seo' | 'structure';
@@ -10,9 +26,14 @@ export interface Suggestion {
   
   // Sprint 2 Fields
   targetSelector?: string; // CSS selector for the target element
-  action: 'replace' | 'insert_before' | 'insert_after' | 'wrap';
+  action: 'replace' | 'insert_before' | 'insert_after' | 'wrap' | 'update_block' | 'add_block';
   applied: boolean; // Whether the suggestion has been applied
   appliedAt?: Date; // Timestamp of application
+  
+  // For JSON modifications
+  blockIndex?: number;
+  newContent?: any;
+  newBlock?: Block;
 }
 
 export interface AnalysisResult {
@@ -26,21 +47,27 @@ export interface AnalysisResult {
   seoScore: number;
 }
 
-// For history management
-export interface HtmlHistory {
-  id: string;
-  html: string;
-  timestamp: Date;
-  action: string; // e.g., "AI Suggestion: Add image"
-  suggestionId?: string; // ID of the applied suggestion
+// For JSON-based page structure
+export interface Block {
+  id: string; // Unique ID for each block
+  type: 'heading' | 'text' | 'image' | 'list';
+  content: string | string[];
+  level?: 1 | 2 | 3 | 4 | 5 | 6;
 }
 
-// For the result of applying a suggestion
-export interface ApplyResult {
-  success: boolean;
-  newHtml: string;
-  error?: string;
+export interface PagePlan {
+  title: string;
+  blocks: Block[];
 }
+
+export interface PagePlanHistoryEntry {
+  id: string;
+  plan: PagePlan;
+  timestamp: Date;
+  action: string;
+  suggestionId?: string;
+}
+
 
 // ========== Sprint 3: Image Types ==========
 
@@ -135,13 +162,14 @@ export interface ProjectData {
   updatedAt: Date;
   
   // 현재 상태
-  html: string;
+  html: string; // Kept for legacy project loading, but PagePlan is primary
+  pagePlan: PagePlan;
   suggestions: Suggestion[];
   images: Omit<UploadedImage, 'file'>[]; // File 객체 제외
   seoAnalysis: SeoAnalysis | null;
   
   // 히스토리
-  history: HtmlHistory[];
+  history: PagePlanHistoryEntry[];
   historyIndex: number;
   
   // 메타데이터

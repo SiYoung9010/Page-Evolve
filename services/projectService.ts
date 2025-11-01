@@ -1,5 +1,6 @@
 // services/projectService.ts
-import { ProjectData, ProjectMetadata, Suggestion, UploadedImage, SeoAnalysis, HtmlHistory } from '../types';
+// FIX: Changed import from HtmlHistory to PagePlan and PagePlanHistoryEntry to align with modern app state.
+import { ProjectData, ProjectMetadata, Suggestion, UploadedImage, SeoAnalysis, PagePlan, PagePlanHistoryEntry } from '../types';
 
 /**
  * Downloads the current project state as a JSON file.
@@ -48,7 +49,7 @@ export const loadProjectFromFile = (file: File): Promise<ProjectData> => {
         }));
         
         // Basic validation
-        if (!data.id || !data.html || !Array.isArray(data.history)) {
+        if (!data.id || !data.pagePlan || !Array.isArray(data.history)) {
             throw new Error('File does not appear to be a valid project file.');
         }
 
@@ -66,13 +67,15 @@ export const loadProjectFromFile = (file: File): Promise<ProjectData> => {
 /**
  * Creates a ProjectData object from the current application state.
  */
+// FIX: Updated function signature and return value to match the ProjectData interface.
 export const createProjectData = (
   name: string,
   html: string,
+  pagePlan: PagePlan,
   suggestions: Suggestion[],
   images: UploadedImage[],
   seoAnalysis: SeoAnalysis | null,
-  history: HtmlHistory[],
+  history: PagePlanHistoryEntry[],
   historyIndex: number,
   tags: string[] = [],
   notes: string = ''
@@ -83,6 +86,7 @@ export const createProjectData = (
     createdAt: new Date(),
     updatedAt: new Date(),
     html,
+    pagePlan,
     suggestions,
     images: images.map(({ file, ...rest }) => rest), // Exclude the File object
     seoAnalysis,

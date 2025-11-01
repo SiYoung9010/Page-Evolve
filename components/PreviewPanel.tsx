@@ -1,45 +1,18 @@
-
-
-
 import React, { useEffect, useRef, useState } from 'react';
 import DOMPurify from 'dompurify';
+import { PagePlan } from '../types';
 
 interface Props {
   html: string;
-  onBlockSelect: (selector: string) => void;
-  selectedSelector: string | null;
+  pagePlan: PagePlan | null;
+  onBlockSelect: (index: number, type: string) => void;
+  selectedBlockIndex: number | null;
   isSlicingMode: boolean;
   slicePositions: number[];
   onSlicePositionsChange: (positions: number[]) => void;
 }
 
-const getCssSelector = (el: HTMLElement): string => {
-  if (!(el instanceof Element)) return '';
-  const path: string[] = [];
-  while (el && el.nodeType === Node.ELEMENT_NODE) {
-    let selector = el.nodeName.toLowerCase();
-    if (el.id) {
-      selector += '#' + el.id;
-      path.unshift(selector);
-      break;
-    } else {
-      let sib = el, nth = 1;
-      while ((sib = sib.previousElementSibling as HTMLElement)) {
-        if (sib.nodeName.toLowerCase() === selector) nth++;
-      }
-      if (nth !== 1) selector += `:nth-of-type(${nth})`;
-    }
-    path.unshift(selector);
-    if (el.nodeName.toLowerCase() === 'body') {
-        break;
-    }
-    el = el.parentElement as HTMLElement;
-  }
-  return path.join(' > ');
-};
-
-
-const PreviewPanel: React.FC<Props> = ({ html, onBlockSelect, selectedSelector, isSlicingMode, slicePositions, onSlicePositionsChange }) => {
+const PreviewPanel: React.FC<Props> = ({ html, pagePlan, onBlockSelect, selectedBlockIndex, isSlicingMode, slicePositions, onSlicePositionsChange }) => {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const lastSelectedElement = useRef<HTMLElement | null>(null);
   const [hoverY, setHoverY] = useState<number | null>(null);
@@ -91,17 +64,22 @@ const PreviewPanel: React.FC<Props> = ({ html, onBlockSelect, selectedSelector, 
           e.preventDefault();
           e.stopPropagation();
           
-          let target = e.target as Node;
-          // If the direct target is a text node, use its parent element instead.
+          let target = e.target as HTMLElement;
           if (target.nodeType === Node.TEXT_NODE) {
-            target = target.parentNode as Node;
+            target = target.parentNode as HTMLElement;
           }
 
-          if (target && target.nodeType === Node.ELEMENT_NODE) {
-            const targetElement = target as HTMLElement;
-            const selector = getCssSelector(targetElement);
-            if (selector) { // Only proceed if we got a valid selector
-              onBlockSelect(selector);
+          if (target && target.closest) {
+            const blockElement = target.closest('[data-block-index]') as HTMLElement;
+            if (blockElement) {
+              const blockIndexAttr = blockElement.getAttribute('data-block-index');
+              if (blockIndexAttr && pagePlan) {
+                  const index = parseInt(blockIndexAttr, 10);
+                  const blockType = pagePlan.blocks[index]?.type;
+                  if (blockType) {
+                    onBlockSelect(index, blockType);
+                  }
+              }
             }
           }
         };
@@ -117,12 +95,10 @@ const PreviewPanel: React.FC<Props> = ({ html, onBlockSelect, selectedSelector, 
     };
 
     const handleLoad = () => {
-        // Run setup on load
         setupEventListeners();
     };
     
     iframe.addEventListener('load', handleLoad);
-    // If iframe is already loaded (e.g., on dependency change), run setup
     if (iframe.contentDocument && iframe.contentDocument.readyState === 'complete') {
       setupEventListeners();
     }
@@ -133,7 +109,7 @@ const PreviewPanel: React.FC<Props> = ({ html, onBlockSelect, selectedSelector, 
         cleanupFunc();
       }
     };
-  }, [isSlicingMode, onBlockSelect, onSlicePositionsChange, slicePositions, html]);
+  }, [isSlicingMode, onBlockSelect, onSlicePositionsChange, slicePositions, html, pagePlan]);
 
   // Effect to manage visual selection highlight
   useEffect(() => {
@@ -146,22 +122,22 @@ const PreviewPanel: React.FC<Props> = ({ html, onBlockSelect, selectedSelector, 
         lastSelectedElement.current.style.outlineOffset = '';
     }
 
-    if (selectedSelector) {
+    if (selectedBlockIndex !== null) {
         try {
-            const selectedEl = doc.querySelector(selectedSelector) as HTMLElement;
+            const selectedEl = doc.querySelector(`[data-block-index="${selectedBlockIndex}"]`) as HTMLElement;
             if (selectedEl) {
                 selectedEl.style.outline = '3px solid #60a5fa'; // light blue outline
                 selectedEl.style.outlineOffset = '2px';
                 lastSelectedElement.current = selectedEl;
             }
         } catch (e) {
-            console.error("Invalid selector:", selectedSelector);
+            console.error("Error selecting element by index:", selectedBlockIndex, e);
             lastSelectedElement.current = null;
         }
     } else {
         lastSelectedElement.current = null;
     }
-  }, [selectedSelector, html, isSlicingMode]); // Rerun on html change to re-apply highlight
+  }, [selectedBlockIndex, html, isSlicingMode]); // Rerun on html change to re-apply highlight
   
   const handleRemoveSlice = (indexToRemove: number) => {
       onSlicePositionsChange(slicePositions.filter((_, index) => index !== indexToRemove));

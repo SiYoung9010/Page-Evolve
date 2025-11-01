@@ -1,7 +1,7 @@
 // services/geminiService.ts
 
 import { GoogleGenAI, GenerateContentResponse, Type } from '@google/genai';
-import { AnalysisResult } from '../types';
+import { AnalysisResult, PagePlan } from '../types';
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
@@ -75,56 +75,82 @@ Analysis Rules:
   }
 };
 
-export const modifyHtmlBlock = async (
-  fullHtml: string,
-  targetSelector: string,
+
+export async function applyBlockFeedback(
+  pagePlan: PagePlan,
+  blockIndex: number,
   userFeedback: string
-): Promise<{ newHtml: string }> => {
+): Promise<PagePlan> {
+  const targetBlock = pagePlan.blocks[blockIndex];
+
   const prompt = `
-You are an expert web developer tasked with modifying a single HTML element on a page based on user feedback.
+You are an expert product detail page designer. Your task is to modify a single block of a page layout based on user feedback.
 
-**Rules:**
-1.  Analyze the user's request and the provided HTML context.
-2.  Modify ONLY the element targeted by the CSS selector: \`${targetSelector}\`.
-3.  Return a JSON object containing the new outerHTML for the modified element(s).
-4.  Do NOT return the full HTML page, only the modified element's code.
-5.  If the request involves adding an element (e.g., "add a button below this"), return the original element's HTML followed by the new element's HTML.
-6.  Ensure the returned HTML is valid and well-formed.
+# IMPORTANT RULES
+1.  You MUST modify ONLY the block at index ${blockIndex}.
+2.  Do NOT modify any other blocks.
+3.  Do NOT add or remove blocks. The "blocks" array must have the same number of elements.
+4.  Preserve the 'id' of the modified block.
+5.  Return the COMPLETE, updated pagePlan JSON object. Your entire response must be a single, valid JSON object.
 
-**User Feedback:**
-"${userFeedback}"
-
-**Full Page HTML for context:**
-\`\`\`html
-${fullHtml}
+# FULL PAGE LAYOUT (JSON)
+\`\`\`json
+${JSON.stringify(pagePlan, null, 2)}
 \`\`\`
 
-Now, provide the new HTML for the element identified by the selector \`${targetSelector}\`.
+# USER-SELECTED BLOCK TO MODIFY
+- Index: ${blockIndex}
+- Type: ${targetBlock.type}
+- Current Content:
+\`\`\`json
+${JSON.stringify(targetBlock, null, 2)}
+\`\`\`
+
+# USER'S REQUEST
+"${userFeedback}"
+
+Now, provide the modified full pagePlan as a valid JSON object.
 `;
 
   try {
-    const response: GenerateContentResponse = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-pro',
       contents: prompt,
       config: {
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            newHtml: {
-              type: Type.STRING,
-              description: "The new outerHTML of the modified element."
+            title: { type: Type.STRING },
+            blocks: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  id: { type: Type.STRING },
+                  type: { type: Type.STRING },
+                  content: {
+                    oneOf: [
+                      { type: Type.STRING },
+                      { type: Type.ARRAY, items: { type: Type.STRING } }
+                    ]
+                  },
+                  level: { type: Type.NUMBER }
+                },
+                required: ['id', 'type', 'content']
+              }
             }
           },
-          required: ['newHtml']
+          required: ['title', 'blocks']
         }
       }
     });
+
     const parsed = JSON.parse(response.text);
-    return parsed as { newHtml: string };
+    return parsed as PagePlan;
 
   } catch (error) {
-    console.error('Gemini Block Modification Error:', error);
+    console.error('Gemini Block Feedback Error:', error);
     throw new Error('AI block modification failed: ' + (error instanceof Error ? error.message : 'An unknown error occurred'));
   }
-};
+}
