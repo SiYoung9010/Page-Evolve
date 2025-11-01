@@ -9,6 +9,7 @@ import ImageLibrary from './components/ImageLibrary';
 import SeoPanel from './components/SeoPanel';
 import ReferencePanel from './components/ReferencePanel';
 import BlockFeedbackPopup from './components/BlockFeedbackPopup';
+import SlicingControls from './components/SlicingControls';
 import { analyzeHtml, modifyHtmlBlock } from './services/geminiService';
 import { applySuggestion } from './services/htmlApplier';
 import { analyzeSeo } from './services/seoAnalyzer';
@@ -74,6 +75,10 @@ export default function App() {
   const [blockFeedbackText, setBlockFeedbackText] = useState('');
   const [isModifyingBlock, setIsModifyingBlock] = useState(false);
 
+  // Image slicing states
+  const [isSlicingMode, setIsSlicingMode] = useState(false);
+  const [slicePositions, setSlicePositions] = useState<number[]>([]);
+
   const {
     currentHtml,
     history,
@@ -118,13 +123,16 @@ export default function App() {
       if (e.key === 'Escape') {
         setShowFeedbackPopup(false);
         setSelectedBlockSelector(null);
+        if (isSlicingMode) {
+          handleCancelSlicing();
+        }
       }
     };
     window.addEventListener('keydown', handleKeyPress);
     return () => {
       window.removeEventListener('keydown', handleKeyPress);
     };
-  }, []);
+  }, [isSlicingMode]); // Re-bind if isSlicingMode changes
   
   const handleAnalyze = useCallback(async () => {
     setIsAnalyzing(true);
@@ -264,9 +272,13 @@ export default function App() {
   const handleExportImage = useCallback(async (type: 'visible' | 'full') => {
     setIsExporting(true);
     try {
-      const exportFn = type === 'full' ? exportFullPageAsImage : exportPreviewAsImage;
-      const fileName = `${projectName.replace(/\s+/g, '_')}_${type}.png`;
-      await exportFn('preview-iframe', fileName);
+      if (type === 'visible') {
+        const fileName = `${projectName.replace(/\s+/g, '_')}_visible.png`;
+        await exportPreviewAsImage('preview-iframe', fileName);
+      } else {
+        const fileName = `${projectName.replace(/\s+/g, '_')}_full.png`;
+        await exportFullPageAsImage('preview-iframe', fileName); // Pass no positions for auto-slicing
+      }
     } catch (err) {
       alert('Export failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
     } finally {
@@ -377,6 +389,36 @@ export default function App() {
         setIsModifyingBlock(false);
         }
     }, [currentHtml, selectedBlockSelector, blockFeedbackText, addHistory, handleBlockFeedbackClose]);
+    
+    // --- Image Slicing Handlers ---
+    const handleCancelSlicing = useCallback(() => {
+        setIsSlicingMode(false);
+        setSlicePositions([]);
+    }, []);
+
+    const handleToggleSlicingMode = useCallback(() => {
+        setIsSlicingMode(prev => !prev);
+        if (isSlicingMode) { // If it was on, now it's off
+            handleCancelSlicing();
+        }
+    }, [isSlicingMode, handleCancelSlicing]);
+
+    const handleExportSlices = useCallback(async () => {
+        if (slicePositions.length === 0) {
+            alert("Please add at least one slice line by clicking in the preview, or use the 'Export Full' button for automatic slicing.");
+            return;
+        }
+        setIsExporting(true);
+        try {
+            const fileName = `${projectName.replace(/\s+/g, '_')}_sliced.png`;
+            await exportFullPageAsImage('preview-iframe', fileName, slicePositions);
+        } catch (err) {
+            alert('Export failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+        } finally {
+            setIsExporting(false);
+            handleCancelSlicing();
+        }
+    }, [projectName, slicePositions, handleCancelSlicing]);
 
 
   return (
@@ -445,7 +487,16 @@ export default function App() {
         </div>
       </header>
 
-      <main className="flex-1 flex overflow-hidden">
+      <main className="flex-1 flex overflow-hidden relative">
+        {isSlicingMode && (
+            <SlicingControls
+                sliceCount={slicePositions.length + 1}
+                onExport={handleExportSlices}
+                onCancel={handleCancelSlicing}
+                isExporting={isExporting}
+            />
+        )}
+
         {showEditor && (
           <div className="w-[600px] flex flex-col border-r border-gray-700 shrink-0">
             <div className="p-3 bg-gray-800 border-b border-gray-700 flex justify-between items-center">
@@ -470,17 +521,24 @@ export default function App() {
             <div className="flex items-center gap-2">
               <button
                 onClick={() => handleExportImage('visible')}
-                disabled={isExporting}
+                disabled={isExporting || isSlicingMode}
                 className="px-3 py-1 text-xs font-semibold bg-green-700 rounded-md hover:bg-green-600 transition-colors disabled:opacity-50"
               >
                 {isExporting ? '...' : '📷 Export View'}
               </button>
                <button
                 onClick={() => handleExportImage('full')}
-                disabled={isExporting}
+                disabled={isExporting || isSlicingMode}
                 className="px-3 py-1 text-xs font-semibold bg-green-700 rounded-md hover:bg-green-600 transition-colors disabled:opacity-50"
               >
                 {isExporting ? '...' : '📜 Export Full'}
+              </button>
+              <button
+                onClick={handleToggleSlicingMode}
+                disabled={isExporting}
+                className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors disabled:opacity-50 ${isSlicingMode ? 'bg-red-600 hover:bg-red-700' : 'bg-yellow-600 hover:bg-yellow-700'}`}
+              >
+                {isSlicingMode ? 'Cancel Slicing' : '✂️ Slice Export'}
               </button>
               <button
                 onClick={() => setShowEditor(!showEditor)}
@@ -500,6 +558,9 @@ export default function App() {
                 html={currentHtml}
                 onBlockSelect={handleBlockSelect}
                 selectedSelector={selectedBlockSelector}
+                isSlicingMode={isSlicingMode}
+                slicePositions={slicePositions}
+                onSlicePositionsChange={setSlicePositions}
             />
           </div>
         </div>
