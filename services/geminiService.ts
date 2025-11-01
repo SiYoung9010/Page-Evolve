@@ -74,3 +74,57 @@ Analysis Rules:
     throw new Error('AI analysis failed: ' + (error instanceof Error ? error.message : 'An unknown error occurred'));
   }
 };
+
+export const modifyHtmlBlock = async (
+  fullHtml: string,
+  targetSelector: string,
+  userFeedback: string
+): Promise<{ newHtml: string }> => {
+  const prompt = `
+You are an expert web developer tasked with modifying a single HTML element on a page based on user feedback.
+
+**Rules:**
+1.  Analyze the user's request and the provided HTML context.
+2.  Modify ONLY the element targeted by the CSS selector: \`${targetSelector}\`.
+3.  Return a JSON object containing the new outerHTML for the modified element(s).
+4.  Do NOT return the full HTML page, only the modified element's code.
+5.  If the request involves adding an element (e.g., "add a button below this"), return the original element's HTML followed by the new element's HTML.
+6.  Ensure the returned HTML is valid and well-formed.
+
+**User Feedback:**
+"${userFeedback}"
+
+**Full Page HTML for context:**
+\`\`\`html
+${fullHtml}
+\`\`\`
+
+Now, provide the new HTML for the element identified by the selector \`${targetSelector}\`.
+`;
+
+  try {
+    const response: GenerateContentResponse = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            newHtml: {
+              type: Type.STRING,
+              description: "The new outerHTML of the modified element."
+            }
+          },
+          required: ['newHtml']
+        }
+      }
+    });
+    const parsed = JSON.parse(response.text);
+    return parsed as { newHtml: string };
+
+  } catch (error) {
+    console.error('Gemini Block Modification Error:', error);
+    throw new Error('AI block modification failed: ' + (error instanceof Error ? error.message : 'An unknown error occurred'));
+  }
+};

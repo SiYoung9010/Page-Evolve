@@ -1,4 +1,5 @@
 
+
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import HtmlEditor from './components/HtmlEditor';
 import PreviewPanel from './components/PreviewPanel';
@@ -7,7 +8,8 @@ import ImageUploader from './components/ImageUploader';
 import ImageLibrary from './components/ImageLibrary';
 import SeoPanel from './components/SeoPanel';
 import ReferencePanel from './components/ReferencePanel';
-import { analyzeHtml } from './services/geminiService';
+import BlockFeedbackPopup from './components/BlockFeedbackPopup';
+import { analyzeHtml, modifyHtmlBlock } from './services/geminiService';
 import { applySuggestion } from './services/htmlApplier';
 import { analyzeSeo } from './services/seoAnalyzer';
 import { createProjectData, downloadProject, loadProjectFromFile, saveRecentProjects, loadRecentProjects } from './services/projectService';
@@ -15,6 +17,8 @@ import { exportPreviewAsImage, exportFullPageAsImage } from './services/exportSe
 import { useHtmlHistory } from './hooks/useHtmlHistory';
 import { useImageUpload } from './hooks/useImageUpload';
 import { Suggestion, AnalysisResult, ImagePosition, SeoAnalysis, Reference, ProjectMetadata, ProjectData } from './types';
+// Fix: Import DOMPurify to resolve 'Cannot find name' error.
+import DOMPurify from 'dompurify';
 
 const SAMPLE_HTML = `<!DOCTYPE html>
 <html lang="ko">
@@ -64,6 +68,12 @@ export default function App() {
   const [isDragging, setIsDragging] = useState(false);
   const loadFileInputRef = useRef<HTMLInputElement>(null);
 
+  // Block feedback states
+  const [selectedBlockSelector, setSelectedBlockSelector] = useState<string | null>(null);
+  const [showFeedbackPopup, setShowFeedbackPopup] = useState(false);
+  const [blockFeedbackText, setBlockFeedbackText] = useState('');
+  const [isModifyingBlock, setIsModifyingBlock] = useState(false);
+
   const {
     currentHtml,
     history,
@@ -104,6 +114,10 @@ export default function App() {
       if ((e.ctrlKey || e.metaKey) && e.key === 'e') {
         e.preventDefault();
         setShowEditor(prev => !prev);
+      }
+      if (e.key === 'Escape') {
+        setShowFeedbackPopup(false);
+        setSelectedBlockSelector(null);
       }
     };
     window.addEventListener('keydown', handleKeyPress);
@@ -312,6 +326,58 @@ export default function App() {
     }
   }, [handleLoadProjectFile]);
 
+    // New handlers for block feedback
+    const handleBlockSelect = useCallback((selector: string) => {
+        setSelectedBlockSelector(selector);
+        setShowFeedbackPopup(true);
+        setBlockFeedbackText(''); // Clear previous feedback
+    }, []);
+
+    const handleBlockFeedbackClose = useCallback(() => {
+        setShowFeedbackPopup(false);
+        setSelectedBlockSelector(null);
+        setBlockFeedbackText('');
+    }, []);
+
+    const handleBlockFeedbackSubmit = useCallback(async () => {
+        if (!selectedBlockSelector || !blockFeedbackText.trim()) {
+        setError('Selector or feedback text is missing.');
+        return;
+        }
+
+        setIsModifyingBlock(true);
+        setError(null);
+
+        try {
+        const result = await modifyHtmlBlock(
+            currentHtml,
+            selectedBlockSelector,
+            blockFeedbackText
+        );
+        
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(currentHtml, 'text/html');
+        const targetElement = doc.querySelector(selectedBlockSelector);
+
+        if (targetElement) {
+            const tempDiv = doc.createElement('div');
+            // Sanitize AI response before inserting
+            tempDiv.innerHTML = DOMPurify.sanitize(result.newHtml);
+            targetElement.replaceWith(...Array.from(tempDiv.childNodes));
+
+            const newHtml = doc.documentElement.outerHTML;
+            addHistory(newHtml, `AI Modify: ${blockFeedbackText.substring(0, 30)}...`);
+            handleBlockFeedbackClose();
+        } else {
+            throw new Error(`Could not find element with selector: ${selectedBlockSelector}`);
+        }
+        } catch (err) {
+        setError(err instanceof Error ? err.message : 'An error occurred during block modification.');
+        } finally {
+        setIsModifyingBlock(false);
+        }
+    }, [currentHtml, selectedBlockSelector, blockFeedbackText, addHistory, handleBlockFeedbackClose]);
+
 
   return (
     <div className="flex flex-col h-screen bg-gray-900 text-white" onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
@@ -430,7 +496,11 @@ export default function App() {
             </div>
           </div>
           <div className="flex-1 bg-white min-h-0">
-            <PreviewPanel html={currentHtml} />
+            <PreviewPanel
+                html={currentHtml}
+                onBlockSelect={handleBlockSelect}
+                selectedSelector={selectedBlockSelector}
+            />
           </div>
         </div>
 
@@ -550,6 +620,15 @@ export default function App() {
           </div>
         </div>
       </main>
+        <BlockFeedbackPopup
+            visible={showFeedbackPopup}
+            selector={selectedBlockSelector}
+            feedbackText={blockFeedbackText}
+            isModifying={isModifyingBlock}
+            onTextChange={setBlockFeedbackText}
+            onSubmit={handleBlockFeedbackSubmit}
+            onClose={handleBlockFeedbackClose}
+        />
     </div>
   );
 }
