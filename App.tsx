@@ -1,3 +1,5 @@
+
+
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import HtmlEditor from './components/HtmlEditor';
 import PreviewPanel from './components/PreviewPanel';
@@ -39,7 +41,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'suggestions' | 'images' | 'seo' | 'references'>('suggestions');
   const [seoAnalysis, setSeoAnalysis] = useState<SeoAnalysis | null>(null);
   const [isAnalyzingSeo, setIsAnalyzingSeo] = useState(false);
-  const [showEditor, setShowEditor] = useState(false);
+  const [showEditor, setShowEditor] = useState(true);
   
   const [projectName, setProjectName] = useState('Untitled Project');
   const [isExporting, setIsExporting] = useState(false);
@@ -63,6 +65,7 @@ export default function App() {
     history,
     currentIndex,
     addHistory,
+    updateCurrentHistoryEntry,
     undo,
     redo,
     canUndo,
@@ -72,6 +75,10 @@ export default function App() {
   
   const previewHtml = useMemo(() => generateHtml(currentPagePlan), [currentPagePlan]);
   
+  const [jsonInput, setJsonInput] = useState(() => JSON.stringify(currentPagePlan, null, 2));
+  const [jsonError, setJsonError] = useState<string | null>(null);
+  const debounceTimeoutRef = useRef<number | null>(null);
+
   const {
     images,
     isUploading,
@@ -82,6 +89,11 @@ export default function App() {
     removeImage,
     loadUploadedImages,
   } = useImageUpload(previewHtml);
+
+  useEffect(() => {
+    setJsonInput(JSON.stringify(currentPagePlan, null, 2));
+    setJsonError(null);
+  }, [currentPagePlan]);
 
   useEffect(() => {
     const savedState = localStorage.getItem('pageEvolve-showEditor');
@@ -311,6 +323,26 @@ export default function App() {
             handleCancelSlicing();
         }
     }, [projectName, slicePositions, handleCancelSlicing]);
+    
+    const handleJsonChange = useCallback((value: string | undefined) => {
+        if (value === undefined) return;
+
+        setJsonInput(value);
+        setJsonError(null);
+
+        if (debounceTimeoutRef.current) {
+            clearTimeout(debounceTimeoutRef.current);
+        }
+
+        debounceTimeoutRef.current = window.setTimeout(() => {
+            try {
+                const parsedPlan = JSON.parse(value);
+                updateCurrentHistoryEntry(parsedPlan);
+            } catch (e) {
+                setJsonError("Invalid JSON structure. Please correct the syntax.");
+            }
+        }, 500);
+    }, [updateCurrentHistoryEntry]);
 
 
   return (
@@ -338,6 +370,7 @@ export default function App() {
         </div>
         
         <div className="flex items-center gap-2">
+           <button onClick={() => setShowEditor(prev => !prev)} className={`px-3 py-1.5 rounded-md font-semibold text-sm transition-all ${showEditor ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-blue-600 text-white hover:bg-blue-700'}`} title="Toggle Editor (Ctrl+E)">{showEditor ? 'Hide Editor' : 'Edit HTML'}</button>
            <button onClick={handleSaveProject} className="px-3 py-1.5 text-sm font-semibold bg-blue-600 rounded-md hover:bg-blue-700 transition-colors" title="Save Project">💾 Save</button>
            <button onClick={() => loadFileInputRef.current?.click()} className="px-3 py-1.5 text-sm font-semibold bg-blue-600 rounded-md hover:bg-blue-700 transition-colors" title="Load Project">📂 Load</button>
           <input type="file" ref={loadFileInputRef} onChange={(e) => e.target.files && handleLoadProjectFile(e.target.files[0])} className="hidden" accept=".json" />
@@ -349,29 +382,36 @@ export default function App() {
         </div>
       </header>
 
-      <main className="flex-1 flex overflow-hidden relative">
+      <main className={`flex-1 grid overflow-hidden relative ${showEditor ? 'grid-cols-[600px_1fr_450px]' : 'grid-cols-[1fr_450px]'}`}>
         {isSlicingMode && <SlicingControls sliceCount={slicePositions.length + 1} onExport={handleExportSlices} onCancel={handleCancelSlicing} isExporting={isExporting} />}
 
         {showEditor && (
-          <div className="w-[600px] flex flex-col border-r border-gray-700 shrink-0">
+          <div className="flex flex-col border-r border-gray-700 min-h-0">
             <div className="p-3 bg-gray-800 border-b border-gray-700 flex justify-between items-center">
               <h2 className="text-lg font-bold">📝 JSON Editor</h2>
-               <button onClick={() => setShowEditor(!showEditor)} className="px-3 py-1 bg-gray-700 text-gray-300 hover:bg-gray-600 rounded text-sm font-semibold" title="Toggle Editor (Ctrl+E)">{showEditor ? '✓ Close Editor' : '📝 Edit JSON'}</button>
             </div>
             <div className="flex-1 min-h-0">
-              <HtmlEditor value={JSON.stringify(currentPagePlan, null, 2)} onChange={(val) => { /* Add JSON parsing and state update here */ }} />
+              <HtmlEditor 
+                language="json"
+                value={jsonInput} 
+                onChange={handleJsonChange} 
+              />
             </div>
+             {jsonError && (
+              <div className="p-2 bg-red-900 border-t border-red-500 text-red-200 text-xs font-mono">
+                <strong>Error:</strong> {jsonError}
+              </div>
+            )}
           </div>
         )}
 
-        <div className="flex-1 flex flex-col border-r border-gray-700 min-w-0">
+        <div className="flex flex-col border-r border-gray-700 min-h-0">
           <div className="p-3 bg-gray-800 border-b border-gray-700 flex justify-between items-center">
             <h2 className="text-lg font-bold">👁️ Live Preview</h2>
             <div className="flex items-center gap-2">
               <button onClick={() => handleExportImage('visible')} disabled={isExporting || isSlicingMode} className="px-3 py-1 text-xs font-semibold bg-green-700 rounded-md hover:bg-green-600 transition-colors disabled:opacity-50">{isExporting ? '...' : '📷 Export View'}</button>
                <button onClick={() => handleExportImage('full')} disabled={isExporting || isSlicingMode} className="px-3 py-1 text-xs font-semibold bg-green-700 rounded-md hover:bg-green-600 transition-colors disabled:opacity-50">{isExporting ? '...' : '📜 Export Full'}</button>
               <button onClick={handleToggleSlicingMode} disabled={isExporting} className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors disabled:opacity-50 ${isSlicingMode ? 'bg-red-600 hover:bg-red-700' : 'bg-yellow-600 hover:bg-yellow-700'}`}>{isSlicingMode ? 'Cancel Slicing' : '✂️ Slice Export'}</button>
-              <button onClick={() => setShowEditor(!showEditor)} className={`px-3 py-1.5 rounded-md font-semibold text-sm transition-all ${showEditor ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-blue-600 text-white hover:bg-blue-700'}`} title="Toggle Editor (Ctrl+E)">{showEditor ? '📝 Hide Editor' : '📝 Edit JSON'}</button>
             </div>
           </div>
           <div className="flex-1 bg-white min-h-0">
@@ -387,7 +427,7 @@ export default function App() {
           </div>
         </div>
 
-        <div className="w-[450px] flex flex-col shrink-0 bg-gray-800">
+        <div className="flex flex-col bg-gray-800 min-h-0">
           <div className="flex border-b border-gray-700 shrink-0">
             <button onClick={() => setActiveTab('suggestions')} className={`flex-1 p-3 text-sm font-bold transition-colors ${activeTab === 'suggestions' ? 'bg-gray-900 text-purple-400 border-b-2 border-purple-400' : 'text-gray-400 hover:bg-gray-700'}`}>💡 Suggestions</button>
             <button onClick={() => setActiveTab('images')} className={`flex-1 p-3 text-sm font-bold transition-colors ${activeTab === 'images' ? 'bg-gray-900 text-purple-400 border-b-2 border-purple-400' : 'text-gray-400 hover:bg-gray-700'}`}>🖼️ Images ({images.length})</button>
