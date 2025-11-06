@@ -10,7 +10,7 @@ import SeoPanel from './components/SeoPanel';
 import ReferencePanel from './components/ReferencePanel';
 import BlockFeedbackPopup from './components/BlockFeedbackPopup';
 import SlicingControls from './components/SlicingControls';
-import { analyzeHtml, applyBlockFeedback } from './services/geminiService';
+import { analyzeHtml, applyBlockFeedback, convertHtmlToPagePlan } from './services/geminiService';
 import { applySuggestion } from './services/pagePlanApplier';
 import { analyzeSeo } from './services/seoAnalyzer';
 import { createProjectData, downloadProject, loadProjectFromFile, saveRecentProjects, loadRecentProjects } from './services/projectService';
@@ -33,6 +33,26 @@ const SAMPLE_PAGE_PLAN: PagePlan = {
   ]
 };
 
+const SAMPLE_HTML_INPUT = `<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>프리미엄 세럼</title>
+</head>
+<body>
+  <h1>프리미엄 세럼 - 24시간 보습 지속</h1>
+  <img src="https://picsum.photos/800/500" alt="세럼 제품 이미지">
+  <h2>제품 설명</h2>
+  <p>피부에 좋은 제품입니다. <b>이 프리미엄 세럼은</b> 보습 효과가 뛰어납니다.</p>
+  <h2>특징</h2>
+  <ul>
+    <li>24시간 보습 지속</li>
+    <li>피부과 테스트 완료</li>
+    <li>무향, 무알코올</li>
+  </ul>
+</body>
+</html>`;
+
 export default function App() {
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -48,6 +68,11 @@ export default function App() {
   const [references, setReferences] = useState<Reference[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const loadFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Editor states
+  const [editorTab, setEditorTab] = useState<'html' | 'json'>('json');
+  const [htmlInput, setHtmlInput] = useState<string>(SAMPLE_HTML_INPUT);
+  const [isConverting, setIsConverting] = useState(false);
 
   // Block feedback states (JSON-based)
   const [selectedBlockIndex, setSelectedBlockIndex] = useState<number | null>(null);
@@ -344,6 +369,25 @@ export default function App() {
         }, 500);
     }, [updateCurrentHistoryEntry]);
 
+    const handleConvertToPlan = useCallback(async () => {
+        if (!htmlInput.trim()) {
+            setError("HTML input is empty.");
+            return;
+        }
+        setIsConverting(true);
+        setError(null);
+        try {
+            const newPlan = await convertHtmlToPagePlan(htmlInput);
+            newPlan.blocks = newPlan.blocks.map(block => ({...block, id: crypto.randomUUID()}));
+            addHistory(newPlan, 'Converted from HTML');
+            setEditorTab('json');
+        } catch(err) {
+            setError(err instanceof Error ? `Conversion failed: ${err.message}` : "An unknown error occurred during conversion.");
+        } finally {
+            setIsConverting(false);
+        }
+    }, [htmlInput, addHistory]);
+
 
   return (
     <div className="flex flex-col h-screen bg-gray-900 text-white" onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
@@ -370,7 +414,7 @@ export default function App() {
         </div>
         
         <div className="flex items-center gap-2">
-           <button onClick={() => setShowEditor(prev => !prev)} className={`px-3 py-1.5 rounded-md font-semibold text-sm transition-all ${showEditor ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-blue-600 text-white hover:bg-blue-700'}`} title="Toggle Editor (Ctrl+E)">{showEditor ? 'Hide Editor' : 'Edit HTML'}</button>
+           <button onClick={() => setShowEditor(prev => !prev)} className={`px-3 py-1.5 rounded-md font-semibold text-sm transition-all ${showEditor ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-blue-600 text-white hover:bg-blue-700'}`} title="Toggle Editor (Ctrl+E)">{showEditor ? 'Hide Editor' : 'Show Editor'}</button>
            <button onClick={handleSaveProject} className="px-3 py-1.5 text-sm font-semibold bg-blue-600 rounded-md hover:bg-blue-700 transition-colors" title="Save Project">💾 Save</button>
            <button onClick={() => loadFileInputRef.current?.click()} className="px-3 py-1.5 text-sm font-semibold bg-blue-600 rounded-md hover:bg-blue-700 transition-colors" title="Load Project">📂 Load</button>
           <input type="file" ref={loadFileInputRef} onChange={(e) => e.target.files && handleLoadProjectFile(e.target.files[0])} className="hidden" accept=".json" />
@@ -387,20 +431,54 @@ export default function App() {
 
         {showEditor && (
           <div className="flex flex-col border-r border-gray-700 min-h-0">
-            <div className="p-3 bg-gray-800 border-b border-gray-700 flex justify-between items-center">
-              <h2 className="text-lg font-bold">📝 JSON Editor</h2>
+            <div className="flex border-b border-gray-700 shrink-0">
+                <button onClick={() => setEditorTab('html')} className={`flex-1 p-3 text-sm font-bold transition-colors ${editorTab === 'html' ? 'bg-gray-900 text-purple-400 border-b-2 border-purple-400' : 'text-gray-400 hover:bg-gray-700'}`}>
+                    &lt;/&gt; HTML Input
+                </button>
+                <button onClick={() => setEditorTab('json')} className={`flex-1 p-3 text-sm font-bold transition-colors ${editorTab === 'json' ? 'bg-gray-900 text-purple-400 border-b-2 border-purple-400' : 'text-gray-400 hover:bg-gray-700'}`}>
+                    &#123;&#125; JSON Data
+                </button>
             </div>
-            <div className="flex-1 min-h-0">
-              <HtmlEditor 
-                language="json"
-                value={jsonInput} 
-                onChange={handleJsonChange} 
-              />
-            </div>
-             {jsonError && (
-              <div className="p-2 bg-red-900 border-t border-red-500 text-red-200 text-xs font-mono">
-                <strong>Error:</strong> {jsonError}
-              </div>
+            
+            {editorTab === 'html' && (
+                <div className="flex flex-col flex-1 min-h-0">
+                    <div className="flex-1 min-h-0">
+                        <HtmlEditor 
+                            language="html"
+                            value={htmlInput}
+                            onChange={setHtmlInput}
+                        />
+                    </div>
+                    <div className="p-2 border-t border-gray-700">
+                        <button onClick={handleConvertToPlan} disabled={isConverting || !htmlInput.trim()} className="w-full px-4 py-2 rounded-md font-semibold text-sm text-white bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2">
+                            {isConverting ? (
+                                <>
+                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                                    <span>Converting...</span>
+                                </>
+                            ) : (
+                                '🔄 Convert HTML to JSON'
+                            )}
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {editorTab === 'json' && (
+                <div className="flex flex-col flex-1 min-h-0">
+                    <div className="flex-1 min-h-0">
+                      <HtmlEditor 
+                        language="json"
+                        value={jsonInput} 
+                        onChange={handleJsonChange} 
+                      />
+                    </div>
+                     {jsonError && (
+                      <div className="p-2 bg-red-900 border-t border-red-500 text-red-200 text-xs font-mono">
+                        <strong>Error:</strong> {jsonError}
+                      </div>
+                    )}
+                </div>
             )}
           </div>
         )}

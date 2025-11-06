@@ -154,3 +154,81 @@ Now, provide the modified full pagePlan as a valid JSON object.
     throw new Error('AI block modification failed: ' + (error instanceof Error ? error.message : 'An unknown error occurred'));
   }
 }
+
+export async function convertHtmlToPagePlan(html: string): Promise<PagePlan> {
+  const prompt = `
+You are an expert web content structure analyzer. Your task is to convert the provided HTML code into a structured JSON object following the 'PagePlan' schema.
+
+# Rules
+1. Analyze the semantic structure of the HTML body.
+2. Identify headings (h1-h6), paragraphs (p), images (img), and lists (ul, ol).
+3. Create a block for each identified element in the order they appear.
+4. For headings, extract the text content and the heading level (1-6).
+5. For text, extract the inner HTML of the paragraph.
+6. For images, extract the 'src' attribute.
+7. For lists, extract the text content of each list item (li) into a string array.
+8. Extract the page title from the <title> tag.
+9. Return only a single, valid JSON object that conforms to the schema. Do not add IDs.
+
+# HTML Input
+\`\`\`html
+${html}
+\`\`\`
+
+# JSON Output Schema
+Provide a valid JSON object with the following structure:
+{
+  "title": "string",
+  "blocks": [
+    {
+      "type": "'heading' | 'text' | 'image' | 'list'",
+      "content": "string | string[]",
+      "level?": "1 | 2 | 3 | 4 | 5 | 6"
+    }
+  ]
+}
+`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-pro',
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            title: { type: Type.STRING },
+            blocks: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  type: { type: Type.STRING },
+                  content: {
+                    oneOf: [
+                      { type: Type.STRING },
+                      { type: Type.ARRAY, items: { type: Type.STRING } },
+                    ],
+                  },
+                  level: { type: Type.NUMBER },
+                },
+                required: ['type', 'content'],
+              },
+            },
+          },
+          required: ['title', 'blocks'],
+        },
+      },
+    });
+
+    const parsed = JSON.parse(response.text);
+    return parsed as PagePlan;
+  } catch (error) {
+    console.error('Gemini HTML to PagePlan Conversion Error:', error);
+    throw new Error(
+      'AI conversion failed: ' +
+        (error instanceof Error ? error.message : 'An unknown error occurred')
+    );
+  }
+}
