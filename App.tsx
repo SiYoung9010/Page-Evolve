@@ -1,6 +1,6 @@
 
 
-import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import HtmlEditor from './components/HtmlEditor';
 import PreviewPanel from './components/PreviewPanel';
 import AiSuggestionCard from './components/AiSuggestionCard';
@@ -8,48 +8,48 @@ import ImageUploader from './components/ImageUploader';
 import ImageLibrary from './components/ImageLibrary';
 import SeoPanel from './components/SeoPanel';
 import ReferencePanel from './components/ReferencePanel';
-import BlockFeedbackPopup from './components/BlockFeedbackPopup';
 import SlicingControls from './components/SlicingControls';
-import { analyzeHtml, applyBlockFeedback, convertHtmlToPagePlan } from './services/geminiService';
-import { applySuggestion } from './services/pagePlanApplier';
+import UserFeedbackPanel from './components/UserFeedbackPanel';
+import { analyzeHtml, applyFeedbackToHtml } from './services/geminiService';
+import { applySuggestion } from './services/htmlApplier';
 import { analyzeSeo } from './services/seoAnalyzer';
-import { createProjectData, downloadProject, loadProjectFromFile, saveRecentProjects, loadRecentProjects } from './services/projectService';
+import { createProjectData, loadProjectFromFile, downloadProject } from './services/projectService';
 import { exportPreviewAsImage, exportFullPageAsImage } from './services/exportService';
-import { generateHtml } from './services/htmlGenerator';
-import { usePagePlanHistory } from './hooks/usePagePlanHistory';
+import { useHtmlHistory } from './hooks/useHtmlHistory';
 import { useImageUpload } from './hooks/useImageUpload';
-import { Suggestion, AnalysisResult, ImagePosition, SeoAnalysis, Reference, ProjectMetadata, ProjectData, PagePlan } from './types';
-import DOMPurify from 'dompurify';
-
-const SAMPLE_PAGE_PLAN: PagePlan = {
-  title: '프리미엄 세럼',
-  blocks: [
-    { id: crypto.randomUUID(), type: 'heading', level: 1, content: '프리미엄 세럼 - 24시간 보습 지속' },
-    { id: crypto.randomUUID(), type: 'image', content: 'https://picsum.photos/800/500' },
-    { id: crypto.randomUUID(), type: 'heading', level: 2, content: '제품 설명' },
-    { id: crypto.randomUUID(), type: 'text', content: '피부에 좋은 제품입니다. 이 프리미엄 세럼은 보습 효과가 뛰어납니다.' },
-    { id: crypto.randomUUID(), type: 'heading', level: 2, content: '특징' },
-    { id: crypto.randomUUID(), type: 'list', content: ['24시간 보습 지속', '피부과 테스트 완료', '무향, 무알코올'] },
-  ]
-};
+import { Suggestion, AnalysisResult, ImagePosition, SeoAnalysis, Reference, ProjectData, HtmlHistory } from './types';
 
 const SAMPLE_HTML_INPUT = `<!DOCTYPE html>
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
   <title>프리미엄 세럼</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; margin: 40px; background-color: #f9f9f9; color: #333; }
+    .container { max-width: 800px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+    h1, h2 { color: #5a29e4; }
+    h1 { font-size: 2.5em; text-align: center; margin-bottom: 20px;}
+    h2 { border-bottom: 2px solid #e0e0e0; padding-bottom: 10px; margin-top: 30px;}
+    img { max-width: 100%; height: auto; border-radius: 8px; margin: 20px 0; }
+    p { line-height: 1.6; }
+    b { color: #5a29e4; font-weight: 600; }
+    ul { list-style-type: '✨'; padding-left: 20px; }
+    li { margin-bottom: 10px; }
+  </style>
 </head>
 <body>
-  <h1>프리미엄 세럼 - 24시간 보습 지속</h1>
-  <img src="https://picsum.photos/800/500" alt="세럼 제품 이미지">
-  <h2>제품 설명</h2>
-  <p>피부에 좋은 제품입니다. <b>이 프리미엄 세럼은</b> 보습 효과가 뛰어납니다.</p>
-  <h2>특징</h2>
-  <ul>
-    <li>24시간 보습 지속</li>
-    <li>피부과 테스트 완료</li>
-    <li>무향, 무알코올</li>
-  </ul>
+  <div class="container">
+    <h1>프리미엄 세럼 - 24시간 보습 지속</h1>
+    <img src="https://picsum.photos/800/500" alt="세럼 제품 이미지">
+    <h2>제품 설명</h2>
+    <p>피부에 좋은 제품입니다. <b>이 프리미엄 세럼은</b> 보습 효과가 뛰어납니다.</p>
+    <h2>특징</h2>
+    <ul>
+      <li>24시간 보습 지속</li>
+      <li>피부과 테스트 완료</li>
+      <li>무향, 무알코올</li>
+    </ul>
+  </div>
 </body>
 </html>`;
 
@@ -58,7 +58,7 @@ export default function App() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [applyingId, setApplyingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'suggestions' | 'images' | 'seo' | 'references'>('suggestions');
+  const [activeTab, setActiveTab] = useState<'suggestions' | 'images' | 'seo' | 'references' | 'feedback'>('suggestions');
   const [seoAnalysis, setSeoAnalysis] = useState<SeoAnalysis | null>(null);
   const [isAnalyzingSeo, setIsAnalyzingSeo] = useState(false);
   const [showEditor, setShowEditor] = useState(true);
@@ -69,24 +69,17 @@ export default function App() {
   const [isDragging, setIsDragging] = useState(false);
   const loadFileInputRef = useRef<HTMLInputElement>(null);
 
-  // Editor states
-  const [editorTab, setEditorTab] = useState<'html' | 'json'>('json');
-  const [htmlInput, setHtmlInput] = useState<string>(SAMPLE_HTML_INPUT);
-  const [isConverting, setIsConverting] = useState(false);
-
-  // Block feedback states (JSON-based)
-  const [selectedBlockIndex, setSelectedBlockIndex] = useState<number | null>(null);
-  const [selectedBlockType, setSelectedBlockType] = useState<string | null>(null);
-  const [showFeedbackPopup, setShowFeedbackPopup] = useState(false);
-  const [blockFeedbackText, setBlockFeedbackText] = useState('');
-  const [isModifyingBlock, setIsModifyingBlock] = useState(false);
+  // User Feedback states
+  const [userFeedback, setUserFeedback] = useState('');
+  const [isApplyingFeedback, setIsApplyingFeedback] = useState(false);
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
 
   // Image slicing states
   const [isSlicingMode, setIsSlicingMode] = useState(false);
   const [slicePositions, setSlicePositions] = useState<number[]>([]);
 
   const {
-    currentPagePlan,
+    currentHtml,
     history,
     currentIndex,
     addHistory,
@@ -96,14 +89,8 @@ export default function App() {
     canUndo,
     canRedo,
     loadHistory,
-  } = usePagePlanHistory(SAMPLE_PAGE_PLAN);
+  } = useHtmlHistory(SAMPLE_HTML_INPUT);
   
-  const previewHtml = useMemo(() => generateHtml(currentPagePlan), [currentPagePlan]);
-  
-  const [jsonInput, setJsonInput] = useState(() => JSON.stringify(currentPagePlan, null, 2));
-  const [jsonError, setJsonError] = useState<string | null>(null);
-  const debounceTimeoutRef = useRef<number | null>(null);
-
   const {
     images,
     isUploading,
@@ -113,12 +100,7 @@ export default function App() {
     analyzeImage,
     removeImage,
     loadUploadedImages,
-  } = useImageUpload(previewHtml);
-
-  useEffect(() => {
-    setJsonInput(JSON.stringify(currentPagePlan, null, 2));
-    setJsonError(null);
-  }, [currentPagePlan]);
+  } = useImageUpload(currentHtml);
 
   useEffect(() => {
     const savedState = localStorage.getItem('pageEvolve-showEditor');
@@ -138,8 +120,6 @@ export default function App() {
         setShowEditor(prev => !prev);
       }
       if (e.key === 'Escape') {
-        setShowFeedbackPopup(false);
-        setSelectedBlockIndex(null);
         if (isSlicingMode) {
           handleCancelSlicing();
         }
@@ -156,7 +136,7 @@ export default function App() {
     setError(null);
     setSuggestions([]);
     try {
-      const result: AnalysisResult = await analyzeHtml(previewHtml);
+      const result: AnalysisResult = await analyzeHtml(currentHtml);
       const suggestionsWithMeta = result.suggestions.map((s) => ({
         ...s,
         id: crypto.randomUUID(),
@@ -169,13 +149,13 @@ export default function App() {
     } finally {
       setIsAnalyzing(false);
     }
-  }, [previewHtml]);
+  }, [currentHtml]);
   
   const handleSeoAnalyze = useCallback(() => {
     setIsAnalyzingSeo(true);
     setError(null);
     try {
-      const analysis = analyzeSeo(previewHtml);
+      const analysis = analyzeSeo(currentHtml);
       setSeoAnalysis(analysis);
       setActiveTab('seo');
     } catch (err) {
@@ -183,7 +163,7 @@ export default function App() {
     } finally {
       setIsAnalyzingSeo(false);
     }
-  }, [previewHtml]);
+  }, [currentHtml]);
 
   const handleApply = useCallback(async (suggestion: Suggestion) => {
     setApplyingId(suggestion.id);
@@ -192,9 +172,9 @@ export default function App() {
     await new Promise(resolve => setTimeout(resolve, 50));
 
     try {
-      const result = applySuggestion(currentPagePlan, suggestion, previewHtml);
+      const result = applySuggestion(currentHtml, suggestion);
       if (result.success) {
-        addHistory(result.newPagePlan, `Applied: ${suggestion.message}`, suggestion.id);
+        addHistory(result.newHtml, `Applied: ${suggestion.message}`, suggestion.id);
         setSuggestions(prev =>
           prev.map(s =>
             s.id === suggestion.id
@@ -210,7 +190,30 @@ export default function App() {
     } finally {
       setApplyingId(null);
     }
-  }, [currentPagePlan, addHistory, previewHtml]);
+  }, [currentHtml, addHistory]);
+
+  const handleApplyFeedback = useCallback(async () => {
+    if (!userFeedback.trim()) {
+      alert("Please enter your feedback first.");
+      return;
+    }
+    setIsApplyingFeedback(true);
+    setFeedbackError(null);
+    setError(null);
+
+    try {
+      const newHtml = await applyFeedbackToHtml(currentHtml, userFeedback);
+      if (!newHtml.trim().toLowerCase().includes('<html')) {
+        throw new Error("AI returned an invalid response. It might be a note or a question. Please try rephrasing your feedback to be more specific.");
+      }
+      addHistory(newHtml, 'Applied user feedback');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'An unknown error occurred.';
+      setFeedbackError(message);
+    } finally {
+      setIsApplyingFeedback(false);
+    }
+  }, [currentHtml, userFeedback, addHistory]);
 
   const handleImageInsert = useCallback((codeWithSrc: string, position: ImagePosition) => {
     setError(null);
@@ -226,47 +229,82 @@ export default function App() {
         applied: true,
       };
       
-      const result = applySuggestion(currentPagePlan, suggestionForHistory, previewHtml);
+      const result = applySuggestion(currentHtml, suggestionForHistory);
       if (result.success) {
-        addHistory(result.newPagePlan, `Image inserted near ${position.targetSelector}`);
+        addHistory(result.newHtml, `Image inserted near ${position.targetSelector}`);
       } else {
         setError(`Failed to insert image: ${result.error}`);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Image insertion failed');
     }
-  }, [currentPagePlan, addHistory, previewHtml]);
+  }, [currentHtml, addHistory]);
   
   const handleSaveProject = useCallback(() => {
-    // ...
-  }, [projectName, currentPagePlan, suggestions, images, seoAnalysis, history, currentIndex]);
+    const projectData = createProjectData(
+      projectName,
+      currentHtml,
+      suggestions,
+      images,
+      seoAnalysis,
+      history as HtmlHistory[],
+      currentIndex
+    );
+    downloadProject(projectData);
+  }, [projectName, currentHtml, suggestions, images, seoAnalysis, history, currentIndex]);
 
   const restoreProjectState = useCallback((project: ProjectData) => {
-    // ...
+    setProjectName(project.name);
+    setSuggestions(project.suggestions);
+    setSeoAnalysis(project.seoAnalysis);
+    loadHistory(project.history, project.historyIndex);
+    loadUploadedImages(project.images);
   }, [loadHistory, loadUploadedImages]);
 
 
   const handleLoadProjectFile = useCallback(async (file: File) => {
-    // ...
+    try {
+        const projectData = await loadProjectFromFile(file);
+        restoreProjectState(projectData);
+    } catch (err) {
+        alert(err instanceof Error ? err.message : 'Failed to load project file.');
+    }
   }, [restoreProjectState]);
   
   const handleExportImage = useCallback(async (type: 'visible' | 'full') => {
-    // ...
+    setIsExporting(true);
+    try {
+        const service = type === 'visible' ? exportPreviewAsImage : exportFullPageAsImage;
+        const fileName = `${projectName.replace(/\s+/g, '_')}_${type}.png`;
+        await service('preview-iframe', fileName);
+    } catch (err) {
+        alert('Export failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+    } finally {
+        setIsExporting(false);
+    }
   }, [projectName]);
   
   const handleAddReference = useCallback(() => {
-    // ...
-  }, [previewHtml]);
+    const newRef: Reference = {
+        id: crypto.randomUUID(),
+        title: `Reference - ${new Date().toLocaleString()}`,
+        category: 'Uncategorized',
+        tags: [],
+        content: currentHtml,
+        notes: 'Saved from current page',
+        createdAt: new Date(),
+        isFavorite: false,
+    };
+    setReferences(prev => [newRef, ...prev]);
+    setActiveTab('references');
+  }, [currentHtml]);
 
   const handleDeleteReference = useCallback((id: string) => {
-    // ...
+    setReferences(prev => prev.filter(ref => ref.id !== id));
   }, []);
 
   const handleInsertReference = useCallback((content: string) => {
-    // This needs to be converted to a PagePlan to be loaded.
-    // For now, it will replace with a simple text block.
-    const newPlan: PagePlan = { title: "Reference", blocks: [{id: crypto.randomUUID(), type: 'text', content: 'HTML from reference inserted. Needs conversion.'}] };
-    addHistory(newPlan, 'Inserted from reference');
+    addHistory(content, 'Loaded from reference');
   }, [addHistory]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); setIsDragging(true); }, []);
@@ -283,43 +321,6 @@ export default function App() {
     }
   }, [handleLoadProjectFile]);
 
-    const handleBlockSelect = useCallback((index: number, type: string) => {
-        setSelectedBlockIndex(index);
-        setSelectedBlockType(type);
-        setShowFeedbackPopup(true);
-        setBlockFeedbackText(''); // Clear previous feedback
-    }, []);
-
-    const handleBlockFeedbackClose = useCallback(() => {
-        setShowFeedbackPopup(false);
-        setSelectedBlockIndex(null);
-        setBlockFeedbackText('');
-    }, []);
-
-    const handleBlockFeedbackSubmit = useCallback(async () => {
-        if (selectedBlockIndex === null || !blockFeedbackText.trim()) {
-            setError('Block not selected or feedback is empty.');
-            return;
-        }
-
-        setIsModifyingBlock(true);
-        setError(null);
-
-        try {
-            const updatedPlan = await applyBlockFeedback(
-                currentPagePlan,
-                selectedBlockIndex,
-                blockFeedbackText
-            );
-            addHistory(updatedPlan, `AI Modify block #${selectedBlockIndex}: ${blockFeedbackText.substring(0, 30)}...`);
-            handleBlockFeedbackClose();
-        } catch (err) {
-            setError(err instanceof Error ? err.message : 'An error occurred during block modification.');
-        } finally {
-            setIsModifyingBlock(false);
-        }
-    }, [currentPagePlan, selectedBlockIndex, blockFeedbackText, addHistory, handleBlockFeedbackClose]);
-    
     const handleCancelSlicing = useCallback(() => {
         setIsSlicingMode(false);
         setSlicePositions([]);
@@ -348,46 +349,6 @@ export default function App() {
             handleCancelSlicing();
         }
     }, [projectName, slicePositions, handleCancelSlicing]);
-    
-    const handleJsonChange = useCallback((value: string | undefined) => {
-        if (value === undefined) return;
-
-        setJsonInput(value);
-        setJsonError(null);
-
-        if (debounceTimeoutRef.current) {
-            clearTimeout(debounceTimeoutRef.current);
-        }
-
-        debounceTimeoutRef.current = window.setTimeout(() => {
-            try {
-                const parsedPlan = JSON.parse(value);
-                updateCurrentHistoryEntry(parsedPlan);
-            } catch (e) {
-                setJsonError("Invalid JSON structure. Please correct the syntax.");
-            }
-        }, 500);
-    }, [updateCurrentHistoryEntry]);
-
-    const handleConvertToPlan = useCallback(async () => {
-        if (!htmlInput.trim()) {
-            setError("HTML input is empty.");
-            return;
-        }
-        setIsConverting(true);
-        setError(null);
-        try {
-            const newPlan = await convertHtmlToPagePlan(htmlInput);
-            newPlan.blocks = newPlan.blocks.map(block => ({...block, id: crypto.randomUUID()}));
-            addHistory(newPlan, 'Converted from HTML');
-            setEditorTab('json');
-        } catch(err) {
-            setError(err instanceof Error ? `Conversion failed: ${err.message}` : "An unknown error occurred during conversion.");
-        } finally {
-            setIsConverting(false);
-        }
-    }, [htmlInput, addHistory]);
-
 
   return (
     <div className="flex flex-col h-screen bg-gray-900 text-white" onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
@@ -426,60 +387,24 @@ export default function App() {
         </div>
       </header>
 
-      <main className={`flex-1 grid overflow-hidden relative ${showEditor ? 'grid-cols-[600px_1fr_450px]' : 'grid-cols-[1fr_450px]'}`}>
+      <main className={`flex-1 grid overflow-hidden relative ${showEditor ? 'grid-cols-[1.2fr_2fr_1fr]' : 'grid-cols-[1fr_450px]'}`}>
         {isSlicingMode && <SlicingControls sliceCount={slicePositions.length + 1} onExport={handleExportSlices} onCancel={handleCancelSlicing} isExporting={isExporting} />}
 
         {showEditor && (
           <div className="flex flex-col border-r border-gray-700 min-h-0">
             <div className="flex border-b border-gray-700 shrink-0">
-                <button onClick={() => setEditorTab('html')} className={`flex-1 p-3 text-sm font-bold transition-colors ${editorTab === 'html' ? 'bg-gray-900 text-purple-400 border-b-2 border-purple-400' : 'text-gray-400 hover:bg-gray-700'}`}>
-                    &lt;/&gt; HTML Input
-                </button>
-                <button onClick={() => setEditorTab('json')} className={`flex-1 p-3 text-sm font-bold transition-colors ${editorTab === 'json' ? 'bg-gray-900 text-purple-400 border-b-2 border-purple-400' : 'text-gray-400 hover:bg-gray-700'}`}>
-                    &#123;&#125; JSON Data
-                </button>
+                <div className={`flex-1 p-3 text-sm font-bold bg-gray-900 text-purple-400`}>
+                    &lt;/&gt; HTML Editor
+                </div>
             </div>
             
-            {editorTab === 'html' && (
-                <div className="flex flex-col flex-1 min-h-0">
-                    <div className="flex-1 min-h-0">
-                        <HtmlEditor 
-                            language="html"
-                            value={htmlInput}
-                            onChange={setHtmlInput}
-                        />
-                    </div>
-                    <div className="p-2 border-t border-gray-700">
-                        <button onClick={handleConvertToPlan} disabled={isConverting || !htmlInput.trim()} className="w-full px-4 py-2 rounded-md font-semibold text-sm text-white bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2">
-                            {isConverting ? (
-                                <>
-                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                                    <span>Converting...</span>
-                                </>
-                            ) : (
-                                '🔄 Convert HTML to JSON'
-                            )}
-                        </button>
-                    </div>
-                </div>
-            )}
-
-            {editorTab === 'json' && (
-                <div className="flex flex-col flex-1 min-h-0">
-                    <div className="flex-1 min-h-0">
-                      <HtmlEditor 
-                        language="json"
-                        value={jsonInput} 
-                        onChange={handleJsonChange} 
-                      />
-                    </div>
-                     {jsonError && (
-                      <div className="p-2 bg-red-900 border-t border-red-500 text-red-200 text-xs font-mono">
-                        <strong>Error:</strong> {jsonError}
-                      </div>
-                    )}
-                </div>
-            )}
+            <div className="flex-1 min-h-0">
+                <HtmlEditor 
+                    language="html"
+                    value={currentHtml}
+                    onChange={updateCurrentHistoryEntry}
+                />
+            </div>
           </div>
         )}
 
@@ -494,10 +419,7 @@ export default function App() {
           </div>
           <div className="flex-1 bg-white min-h-0">
             <PreviewPanel
-                html={previewHtml}
-                pagePlan={currentPagePlan}
-                onBlockSelect={handleBlockSelect}
-                selectedBlockIndex={selectedBlockIndex}
+                html={currentHtml}
                 isSlicingMode={isSlicingMode}
                 slicePositions={slicePositions}
                 onSlicePositionsChange={setSlicePositions}
@@ -509,6 +431,7 @@ export default function App() {
           <div className="flex border-b border-gray-700 shrink-0">
             <button onClick={() => setActiveTab('suggestions')} className={`flex-1 p-3 text-sm font-bold transition-colors ${activeTab === 'suggestions' ? 'bg-gray-900 text-purple-400 border-b-2 border-purple-400' : 'text-gray-400 hover:bg-gray-700'}`}>💡 Suggestions</button>
             <button onClick={() => setActiveTab('images')} className={`flex-1 p-3 text-sm font-bold transition-colors ${activeTab === 'images' ? 'bg-gray-900 text-purple-400 border-b-2 border-purple-400' : 'text-gray-400 hover:bg-gray-700'}`}>🖼️ Images ({images.length})</button>
+            <button onClick={() => setActiveTab('feedback')} className={`flex-1 p-3 text-sm font-bold transition-colors ${activeTab === 'feedback' ? 'bg-gray-900 text-blue-400 border-b-2 border-blue-400' : 'text-gray-400 hover:bg-gray-700'}`}>✍️ 내 피드백</button>
             <button onClick={() => setActiveTab('seo')} className={`flex-1 p-3 text-sm font-bold transition-colors ${activeTab === 'seo' ? 'bg-gray-900 text-green-400 border-b-2 border-green-400' : 'text-gray-400 hover:bg-gray-700'}`}>
               📊 SEO
               {seoAnalysis && <span className={`font-bold ml-1 ${seoAnalysis.score >= 80 ? 'text-green-400' : seoAnalysis.score > 50 ? 'text-yellow-400' : 'text-red-400'}`}>({seoAnalysis.score})</span>}
@@ -532,21 +455,20 @@ export default function App() {
                 <ImageLibrary images={images} analyzingImageId={analyzingImageId} onAnalyze={analyzeImage} onInsert={handleImageInsert} onDelete={removeImage}/>
               </div>
             )}
+            {activeTab === 'feedback' && (
+              <UserFeedbackPanel
+                feedback={userFeedback}
+                onFeedbackChange={setUserFeedback}
+                onSubmit={handleApplyFeedback}
+                isApplying={isApplyingFeedback}
+                error={feedbackError}
+              />
+            )}
             {activeTab === 'seo' && <SeoPanel analysis={seoAnalysis} isAnalyzing={isAnalyzingSeo} />}
             {activeTab === 'references' && <ReferencePanel references={references} onAdd={handleAddReference} onDelete={handleDeleteReference} onInsert={handleInsertReference}/>}
           </div>
         </div>
       </main>
-        <BlockFeedbackPopup
-            visible={showFeedbackPopup}
-            blockIndex={selectedBlockIndex}
-            blockType={selectedBlockType}
-            feedbackText={blockFeedbackText}
-            isModifying={isModifyingBlock}
-            onTextChange={setBlockFeedbackText}
-            onSubmit={handleBlockFeedbackSubmit}
-            onClose={handleBlockFeedbackClose}
-        />
     </div>
   );
 }

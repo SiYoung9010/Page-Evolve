@@ -78,7 +78,10 @@ export const applySuggestion = (
         newPlan.blocks.splice(blockIndex + 1, 0, newBlock);
         break;
       // 'wrap' is complex with JSON and is omitted for now. It would require block nesting.
-      // 'add_block' could be a new action type if needed.
+      // FIX: Added 'add_block' case to handle adding a new block to the plan.
+      case 'add_block':
+        newPlan.blocks.push(newBlock);
+        break;
       default:
         throw new Error(`Unsupported action for PagePlan: ${suggestion.action}`);
     }

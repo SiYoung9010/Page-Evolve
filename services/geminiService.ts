@@ -1,7 +1,7 @@
 // services/geminiService.ts
 
 import { GoogleGenAI, GenerateContentResponse, Type } from '@google/genai';
-import { AnalysisResult, PagePlan } from '../types';
+import { AnalysisResult } from '../types';
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
@@ -75,160 +75,51 @@ Analysis Rules:
   }
 };
 
+/**
+ * Applies user feedback to the given HTML using an AI model.
+ * @param currentHtml The current HTML content.
+ * @param userFeedback The user's requested changes in natural language.
+ * @returns The complete, updated HTML string.
+ */
+export const applyFeedbackToHtml = async (
+    currentHtml: string, 
+    userFeedback: string
+): Promise<string> => {
+    const prompt = `You are an expert frontend developer. The user has provided feedback on their product page. Apply their requested changes to the HTML and return the complete, updated HTML.
 
-export async function applyBlockFeedback(
-  pagePlan: PagePlan,
-  blockIndex: number,
-  userFeedback: string
-): Promise<PagePlan> {
-  const targetBlock = pagePlan.blocks[blockIndex];
+CRITICAL: Return ONLY the complete HTML. Do not include any explanations, markdown formatting (like \`\`\`html), or any text other than the HTML code itself.
 
-  const prompt = `
-You are an expert product detail page designer. Your task is to modify a single block of a page layout based on user feedback.
-
-# IMPORTANT RULES
-1.  You MUST modify ONLY the block at index ${blockIndex}.
-2.  Do NOT modify any other blocks.
-3.  Do NOT add or remove blocks. The "blocks" array must have the same number of elements.
-4.  Preserve the 'id' of the modified block.
-5.  Return the COMPLETE, updated pagePlan JSON object. Your entire response must be a single, valid JSON object.
-
-# FULL PAGE LAYOUT (JSON)
-\`\`\`json
-${JSON.stringify(pagePlan, null, 2)}
-\`\`\`
-
-# USER-SELECTED BLOCK TO MODIFY
-- Index: ${blockIndex}
-- Type: ${targetBlock.type}
-- Current Content:
-\`\`\`json
-${JSON.stringify(targetBlock, null, 2)}
-\`\`\`
-
-# USER'S REQUEST
+User Feedback:
 "${userFeedback}"
 
-Now, provide the modified full pagePlan as a valid JSON object.
-`;
-
-  try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-pro',
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            title: { type: Type.STRING },
-            blocks: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  id: { type: Type.STRING },
-                  type: { type: Type.STRING },
-                  content: {
-                    oneOf: [
-                      { type: Type.STRING },
-                      { type: Type.ARRAY, items: { type: Type.STRING } }
-                    ]
-                  },
-                  level: { type: Type.NUMBER }
-                },
-                required: ['id', 'type', 'content']
-              }
-            }
-          },
-          required: ['title', 'blocks']
-        }
-      }
-    });
-
-    const parsed = JSON.parse(response.text);
-    return parsed as PagePlan;
-
-  } catch (error) {
-    console.error('Gemini Block Feedback Error:', error);
-    throw new Error('AI block modification failed: ' + (error instanceof Error ? error.message : 'An unknown error occurred'));
-  }
-}
-
-export async function convertHtmlToPagePlan(html: string): Promise<PagePlan> {
-  const prompt = `
-You are an expert web content structure analyzer. Your task is to convert the provided HTML code into a structured JSON object following the 'PagePlan' schema.
-
-# Rules
-1. Analyze the semantic structure of the HTML body.
-2. Identify headings (h1-h6), paragraphs (p), images (img), and lists (ul, ol).
-3. Create a block for each identified element in the order they appear.
-4. For headings, extract the text content and the heading level (1-6).
-5. For text, extract the inner HTML of the paragraph.
-6. For images, extract the 'src' attribute.
-7. For lists, extract the text content of each list item (li) into a string array.
-8. Extract the page title from the <title> tag.
-9. Return only a single, valid JSON object that conforms to the schema. Do not add IDs.
-
-# HTML Input
+Current HTML:
 \`\`\`html
-${html}
+${currentHtml}
 \`\`\`
-
-# JSON Output Schema
-Provide a valid JSON object with the following structure:
-{
-  "title": "string",
-  "blocks": [
-    {
-      "type": "'heading' | 'text' | 'image' | 'list'",
-      "content": "string | string[]",
-      "level?": "1 | 2 | 3 | 4 | 5 | 6"
-    }
-  ]
-}
 `;
-
-  try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-pro',
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            title: { type: Type.STRING },
-            blocks: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  type: { type: Type.STRING },
-                  content: {
-                    oneOf: [
-                      { type: Type.STRING },
-                      { type: Type.ARRAY, items: { type: Type.STRING } },
-                    ],
-                  },
-                  level: { type: Type.NUMBER },
-                },
-                required: ['type', 'content'],
-              },
-            },
-          },
-          required: ['title', 'blocks'],
-        },
-      },
-    });
-
-    const parsed = JSON.parse(response.text);
-    return parsed as PagePlan;
-  } catch (error) {
-    console.error('Gemini HTML to PagePlan Conversion Error:', error);
-    throw new Error(
-      'AI conversion failed: ' +
-        (error instanceof Error ? error.message : 'An unknown error occurred')
-    );
-  }
-}
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+            config: {
+                systemInstruction: 'You are an expert web developer specializing in e-commerce pages. Modify HTML based on user instructions and return only the complete, valid HTML code. Preserve all existing styles and scripts unless asked to change them.',
+                temperature: 0.5,
+            }
+        });
+        
+        let modifiedHtml = response.text.trim();
+        
+        // A simple check to remove markdown fences if the model accidentally adds them
+        if (modifiedHtml.startsWith('```html')) {
+            modifiedHtml = modifiedHtml.replace(/^```html\n|```$/g, '').trim();
+        }
+        if (modifiedHtml.startsWith('```')) {
+             modifiedHtml = modifiedHtml.replace(/^```\n|```$/g, '').trim();
+        }
+        
+        return modifiedHtml;
+    } catch (error) {
+        console.error('Gemini API Error (applyFeedbackToHtml):', error);
+        throw new Error('AI failed to apply feedback: ' + (error instanceof Error ? error.message : 'An unknown error occurred'));
+    }
+};

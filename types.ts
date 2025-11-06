@@ -1,13 +1,13 @@
 // types.ts
 
-// FIX: Added ApplyResult for htmlApplier service.
+// ApplyResult for htmlApplier service.
 export interface ApplyResult {
   success: boolean;
   newHtml: string;
   error?: string;
 }
 
-// FIX: Added HtmlHistory for legacy useHtmlHistory hook.
+// HtmlHistory for useHtmlHistory hook.
 export interface HtmlHistory {
   id: string;
   html: string;
@@ -24,16 +24,11 @@ export interface Suggestion {
   code?: string; // HTML code to apply
   position?: string; // Description of insertion point
   
-  // Sprint 2 Fields
   targetSelector?: string; // CSS selector for the target element
-  action: 'replace' | 'insert_before' | 'insert_after' | 'wrap' | 'update_block' | 'add_block';
+  // FIX: Added 'add_block' to support adding new content blocks in PagePlan mode.
+  action: 'replace' | 'insert_before' | 'insert_after' | 'wrap' | 'add_block';
   applied: boolean; // Whether the suggestion has been applied
   appliedAt?: Date; // Timestamp of application
-  
-  // For JSON modifications
-  blockIndex?: number;
-  newContent?: any;
-  newBlock?: Block;
 }
 
 export interface AnalysisResult {
@@ -46,28 +41,6 @@ export interface AnalysisResult {
   suggestions: Omit<Suggestion, 'id' | 'applied' | 'appliedAt'>[]; // AI returns this shape
   seoScore: number;
 }
-
-// For JSON-based page structure
-export interface Block {
-  id: string; // Unique ID for each block
-  type: 'heading' | 'text' | 'image' | 'list';
-  content: string | string[];
-  level?: 1 | 2 | 3 | 4 | 5 | 6;
-}
-
-export interface PagePlan {
-  title: string;
-  blocks: Block[];
-}
-
-export interface PagePlanHistoryEntry {
-  id: string;
-  plan: PagePlan;
-  timestamp: Date;
-  action: string;
-  suggestionId?: string;
-}
-
 
 // ========== Sprint 3: Image Types ==========
 
@@ -162,14 +135,13 @@ export interface ProjectData {
   updatedAt: Date;
   
   // 현재 상태
-  html: string; // Kept for legacy project loading, but PagePlan is primary
-  pagePlan: PagePlan;
+  html: string; // The primary source of truth
   suggestions: Suggestion[];
   images: Omit<UploadedImage, 'file'>[]; // File 객체 제외
   seoAnalysis: SeoAnalysis | null;
   
   // 히스토리
-  history: PagePlanHistoryEntry[];
+  history: HtmlHistory[];
   historyIndex: number;
   
   // 메타데이터
@@ -196,4 +168,27 @@ export interface Reference {
   notes: string;
   createdAt: Date;
   isFavorite: boolean;
+}
+
+// FIX: Added missing types for the Page Planning feature.
+// ========== Sprint 6: Page Planning (JSON-based editor) ==========
+
+export interface Block {
+  id: string;
+  type: 'heading' | 'text' | 'image' | 'list';
+  content: string | string[];
+  level?: 1 | 2 | 3 | 4 | 5 | 6; // For headings
+}
+
+export interface PagePlan {
+  title: string;
+  blocks: Block[];
+}
+
+export interface PagePlanHistoryEntry {
+  id: string;
+  plan: PagePlan;
+  timestamp: Date;
+  action: string;
+  suggestionId?: string;
 }

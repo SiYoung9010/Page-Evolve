@@ -1,20 +1,15 @@
 import React, { useEffect, useRef, useState } from 'react';
 import DOMPurify from 'dompurify';
-import { PagePlan } from '../types';
 
 interface Props {
   html: string;
-  pagePlan: PagePlan | null;
-  onBlockSelect: (index: number, type: string) => void;
-  selectedBlockIndex: number | null;
   isSlicingMode: boolean;
   slicePositions: number[];
   onSlicePositionsChange: (positions: number[]) => void;
 }
 
-const PreviewPanel: React.FC<Props> = ({ html, pagePlan, onBlockSelect, selectedBlockIndex, isSlicingMode, slicePositions, onSlicePositionsChange }) => {
+const PreviewPanel: React.FC<Props> = ({ html, isSlicingMode, slicePositions, onSlicePositionsChange }) => {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
-  const lastSelectedElement = useRef<HTMLElement | null>(null);
   const [hoverY, setHoverY] = useState<number | null>(null);
 
   const sanitizedHtml = DOMPurify.sanitize(html, {
@@ -59,31 +54,6 @@ const PreviewPanel: React.FC<Props> = ({ html, pagePlan, onBlockSelect, selected
       } else {
         doc.body.style.cursor = 'default';
         setHoverY(null);
-        
-        const handleClick = (e: MouseEvent) => {
-          e.preventDefault();
-          e.stopPropagation();
-          
-          let target = e.target as HTMLElement;
-          if (target.nodeType === Node.TEXT_NODE) {
-            target = target.parentNode as HTMLElement;
-          }
-
-          if (target && target.closest) {
-            const blockElement = target.closest('[data-block-index]') as HTMLElement;
-            if (blockElement) {
-              const blockIndexAttr = blockElement.getAttribute('data-block-index');
-              if (blockIndexAttr && pagePlan) {
-                  const index = parseInt(blockIndexAttr, 10);
-                  const blockType = pagePlan.blocks[index]?.type;
-                  if (blockType) {
-                    onBlockSelect(index, blockType);
-                  }
-              }
-            }
-          }
-        };
-        addListener(doc.body, 'click', handleClick as EventListener);
       }
       
       cleanupFunc = () => {
@@ -109,36 +79,8 @@ const PreviewPanel: React.FC<Props> = ({ html, pagePlan, onBlockSelect, selected
         cleanupFunc();
       }
     };
-  }, [isSlicingMode, onBlockSelect, onSlicePositionsChange, slicePositions, html, pagePlan]);
+  }, [isSlicingMode, onSlicePositionsChange, slicePositions, html]);
 
-  // Effect to manage visual selection highlight
-  useEffect(() => {
-    const iframe = iframeRef.current;
-    const doc = iframe?.contentDocument;
-    if (!doc || isSlicingMode) return;
-    
-    if (lastSelectedElement.current) {
-        lastSelectedElement.current.style.outline = '';
-        lastSelectedElement.current.style.outlineOffset = '';
-    }
-
-    if (selectedBlockIndex !== null) {
-        try {
-            const selectedEl = doc.querySelector(`[data-block-index="${selectedBlockIndex}"]`) as HTMLElement;
-            if (selectedEl) {
-                selectedEl.style.outline = '3px solid #60a5fa'; // light blue outline
-                selectedEl.style.outlineOffset = '2px';
-                lastSelectedElement.current = selectedEl;
-            }
-        } catch (e) {
-            console.error("Error selecting element by index:", selectedBlockIndex, e);
-            lastSelectedElement.current = null;
-        }
-    } else {
-        lastSelectedElement.current = null;
-    }
-  }, [selectedBlockIndex, html, isSlicingMode]); // Rerun on html change to re-apply highlight
-  
   const handleRemoveSlice = (indexToRemove: number) => {
       onSlicePositionsChange(slicePositions.filter((_, index) => index !== indexToRemove));
   };
