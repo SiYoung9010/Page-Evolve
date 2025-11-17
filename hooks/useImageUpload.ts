@@ -124,6 +124,16 @@ export const useImageUpload = (currentHtml: string) => {
       setImages(loadedImages as UploadedImage[]);
   }, []);
 
+  const addImage = useCallback((image: UploadedImage) => {
+    setImages(prev => [...prev, image]);
+  }, []);
+
+  const updateImage = useCallback((imageId: string, updates: Partial<UploadedImage>) => {
+    setImages(prev => prev.map(img =>
+      img.id === imageId ? { ...img, ...updates } : img
+    ));
+  }, []);
+
   return {
     images,
     isUploading,
@@ -134,5 +144,7 @@ export const useImageUpload = (currentHtml: string) => {
     removeImage,
     clearAllImages: clearAll,
     loadUploadedImages,
+    addImage,
+    updateImage,
   };
 };

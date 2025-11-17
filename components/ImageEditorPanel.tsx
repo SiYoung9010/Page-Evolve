@@ -260,9 +260,17 @@ const ImageEditorPanel: React.FC<Props> = ({
           moodReference = MOOD_PRESETS[selectedMoodPreset!].prompt;
         }
 
+        // Prepare aspect ratio info
+        const aspectRatioInfo = ASPECT_RATIOS[selectedAspectRatio];
+
         if (isABTestMode) {
           // Generate 3 variations
-          const variations = await generateABTestVariations(productBase64, productMimeType, moodReference);
+          const variations = await generateABTestVariations(
+            productBase64,
+            productMimeType,
+            moodReference,
+            aspectRatioInfo
+          );
 
           for (let i = 0; i < variations.length; i++) {
             const dataUrl = `data:image/png;base64,${variations[i]}`;
@@ -293,7 +301,12 @@ const ImageEditorPanel: React.FC<Props> = ({
           }
         } else {
           // Single generation
-          const stagedBase64 = await generateProductStaging(productBase64, productMimeType, moodReference);
+          const stagedBase64 = await generateProductStaging(
+            productBase64,
+            productMimeType,
+            moodReference,
+            aspectRatioInfo
+          );
           const dataUrl = `data:image/png;base64,${stagedBase64}`;
 
           const img = new Image();
@@ -338,7 +351,7 @@ const ImageEditorPanel: React.FC<Props> = ({
     } finally {
       setIsGeneratingStaging(false);
     }
-  }, [selectedProductImage, selectedProductImages, isBatchMode, isABTestMode, moodReferenceType, moodText, moodImage, selectedMoodPreset, onImageAdd]);
+  }, [selectedProductImage, selectedProductImages, isBatchMode, isABTestMode, moodReferenceType, moodText, moodImage, selectedMoodPreset, selectedAspectRatio, onImageAdd]);
 
   const handleRemoveBackground = useCallback(async () => {
     if (!selectedImage) return;
@@ -508,7 +521,13 @@ const ImageEditorPanel: React.FC<Props> = ({
           {/* Mode Selection */}
           <div className="mb-3 flex gap-2">
             <button
-              onClick={() => setIsABTestMode(!isABTestMode)}
+              onClick={() => {
+                setIsABTestMode(!isABTestMode);
+                if (!isABTestMode && isBatchMode) {
+                  // If turning on A/B test while batch is on, turn off batch
+                  setIsBatchMode(false);
+                }
+              }}
               className={`flex-1 px-3 py-2 text-xs rounded-md transition-colors ${
                 isABTestMode ? 'bg-purple-600 text-white' : 'bg-gray-700 text-gray-300'
               }`}
@@ -516,7 +535,13 @@ const ImageEditorPanel: React.FC<Props> = ({
               {isABTestMode ? '✓ A/B 테스트 (3장)' : 'A/B 테스트'}
             </button>
             <button
-              onClick={() => setIsBatchMode(!isBatchMode)}
+              onClick={() => {
+                setIsBatchMode(!isBatchMode);
+                if (!isBatchMode && isABTestMode) {
+                  // If turning on batch while A/B test is on, turn off A/B test
+                  setIsABTestMode(false);
+                }
+              }}
               className={`flex-1 px-3 py-2 text-xs rounded-md transition-colors ${
                 isBatchMode ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300'
               }`}

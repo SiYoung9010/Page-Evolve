@@ -99,6 +99,8 @@ export default function App() {
     analyzeImage,
     removeImage,
     loadUploadedImages,
+    addImage,
+    updateImage,
   } = useImageUpload(currentHtml);
 
   const [isDragging, setIsDragging] = useState(false);
@@ -573,14 +575,8 @@ export default function App() {
             {activeTab === 'image-editor' && (
               <ImageEditorPanel
                 images={images}
-                onImageAdd={(image) => {
-                  const newImages = [...images, image];
-                  localStorage.setItem('uploadedImages', JSON.stringify(newImages));
-                }}
-                onImageUpdate={(id, updates) => {
-                  const newImages = images.map(img => img.id === id ? { ...img, ...updates } : img);
-                  localStorage.setItem('uploadedImages', JSON.stringify(newImages));
-                }}
+                onImageAdd={addImage}
+                onImageUpdate={updateImage}
                 onImageRemove={removeImage}
                 onInsertImage={handleImageInsert}
               />

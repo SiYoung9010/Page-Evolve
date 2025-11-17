@@ -235,16 +235,22 @@ export const detectObjects = async (
  * @param productBase64 The base64 encoded product image (cutout/no background recommended)
  * @param productMimeType The MIME type of the product image
  * @param moodReference Either a text description or an object with mood image data
+ * @param aspectRatio Optional aspect ratio specifications (width, height, platform)
  * @returns A promise that resolves to the base64 encoded string of the staged product image
  */
 export const generateProductStaging = async (
   productBase64: string,
   productMimeType: string,
-  moodReference: string | { base64: string; mimeType: string }
+  moodReference: string | { base64: string; mimeType: string },
+  aspectRatio?: { width: number; height: number; ratio: string; platform: string }
 ): Promise<string> => {
   try {
     let parts: any[];
     let prompt: string;
+
+    const aspectRatioInstruction = aspectRatio
+      ? `\n- IMPORTANT: Generate image in ${aspectRatio.ratio} aspect ratio (${aspectRatio.width}x${aspectRatio.height}px) optimized for ${aspectRatio.platform}`
+      : '';
 
     if (typeof moodReference === 'string') {
       // Text-based mood description
@@ -255,7 +261,7 @@ Instructions:
 - Ensure proper lighting, shadows, and perspective
 - The product should be the main focus
 - Create a high-quality, e-commerce ready image
-- Use complementary colors and professional composition`;
+- Use complementary colors and professional composition${aspectRatioInstruction}`;
 
       parts = [
         {
@@ -278,7 +284,7 @@ Instructions:
 - Place the product naturally in a similar environment
 - Maintain the same lighting quality and color tone
 - Ensure the product is the main focus while harmonizing with the reference style
-- Create a high-quality, photorealistic, e-commerce ready image`;
+- Create a high-quality, photorealistic, e-commerce ready image${aspectRatioInstruction}`;
 
       parts = [
         {
@@ -334,14 +340,20 @@ Instructions:
  * @param productBase64 The base64 encoded product image
  * @param productMimeType The MIME type of the product image
  * @param moodReference Either a text description or an object with mood image data
+ * @param aspectRatio Optional aspect ratio specifications (width, height, platform)
  * @returns A promise that resolves to an array of 3 base64 encoded staged images
  */
 export const generateABTestVariations = async (
   productBase64: string,
   productMimeType: string,
-  moodReference: string | { base64: string; mimeType: string }
+  moodReference: string | { base64: string; mimeType: string },
+  aspectRatio?: { width: number; height: number; ratio: string; platform: string }
 ): Promise<string[]> => {
   const variations = ['light and airy', 'dramatic and moody', 'balanced and neutral'];
+
+  const aspectRatioInstruction = aspectRatio
+    ? `\n- IMPORTANT: Generate image in ${aspectRatio.ratio} aspect ratio (${aspectRatio.width}x${aspectRatio.height}px) optimized for ${aspectRatio.platform}`
+    : '';
 
   const promises = variations.map(async (variation, index) => {
     try {
@@ -356,7 +368,7 @@ Instructions:
 - Place the product in a photorealistic scene
 - Ensure proper lighting, shadows, and perspective
 - The product should be the main focus
-- Create a high-quality, e-commerce ready image`;
+- Create a high-quality, e-commerce ready image${aspectRatioInstruction}`;
 
         parts = [
           { inlineData: { data: productBase64, mimeType: productMimeType } },
@@ -369,7 +381,7 @@ Instructions:
 - Style: ${variation} interpretation
 - Analyze and match the reference mood with a ${variation} twist
 - Create a scene for the product
-- Maintain professional e-commerce quality`;
+- Maintain professional e-commerce quality${aspectRatioInstruction}`;
 
         parts = [
           { inlineData: { data: moodReference.base64, mimeType: moodReference.mimeType } },
