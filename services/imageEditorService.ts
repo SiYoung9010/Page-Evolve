@@ -227,3 +227,102 @@ export const detectObjects = async (
     throw new Error("Failed to detect objects in the image. The model may not have been able to identify any distinct items.");
   }
 };
+
+/**
+ * Generates a product staging shot using AI.
+ * Combines a product image with mood reference (image or text) to create a styled product photo.
+ *
+ * @param productBase64 The base64 encoded product image (cutout/no background recommended)
+ * @param productMimeType The MIME type of the product image
+ * @param moodReference Either a text description or an object with mood image data
+ * @returns A promise that resolves to the base64 encoded string of the staged product image
+ */
+export const generateProductStaging = async (
+  productBase64: string,
+  productMimeType: string,
+  moodReference: string | { base64: string; mimeType: string }
+): Promise<string> => {
+  try {
+    let parts: any[];
+    let prompt: string;
+
+    if (typeof moodReference === 'string') {
+      // Text-based mood description
+      prompt = `Create a professional product staging photo with the following mood and style: ${moodReference}
+
+Instructions:
+- Place the product in a beautiful, photorealistic scene that matches the described mood
+- Ensure proper lighting, shadows, and perspective
+- The product should be the main focus
+- Create a high-quality, e-commerce ready image
+- Use complementary colors and professional composition`;
+
+      parts = [
+        {
+          inlineData: {
+            data: productBase64,
+            mimeType: productMimeType,
+          },
+        },
+        {
+          text: prompt,
+        },
+      ];
+    } else {
+      // Image-based mood reference
+      prompt = `Create a professional product staging photo using the style and mood from the first reference image.
+
+Instructions:
+- Analyze the mood, lighting, color palette, and composition of the reference image
+- Create a scene for the product that matches this aesthetic
+- Place the product naturally in a similar environment
+- Maintain the same lighting quality and color tone
+- Ensure the product is the main focus while harmonizing with the reference style
+- Create a high-quality, photorealistic, e-commerce ready image`;
+
+      parts = [
+        {
+          inlineData: {
+            data: moodReference.base64,
+            mimeType: moodReference.mimeType,
+          },
+        },
+        {
+          inlineData: {
+            data: productBase64,
+            mimeType: productMimeType,
+          },
+        },
+        {
+          text: prompt,
+        },
+      ];
+    }
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash-image',
+      contents: {
+        parts,
+      },
+      config: {
+        responseModalities: [Modality.IMAGE],
+      },
+    });
+
+    if (!response.candidates || response.candidates.length === 0) {
+      throw new Error("API returned no candidates for product staging.");
+    }
+
+    for (const part of response.candidates[0].content.parts) {
+      if (part.inlineData && part.inlineData.data) {
+        return part.inlineData.data;
+      }
+    }
+
+    throw new Error("No image data found in the staging response.");
+
+  } catch (error) {
+    console.error("Error generating product staging with Gemini:", error);
+    throw new Error("Failed to generate product staging. Please try a different product image or mood reference.");
+  }
+};

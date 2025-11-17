@@ -1,5 +1,5 @@
 import React, { useState, useCallback, ChangeEvent } from 'react';
-import { editImage, detectObjects, DetectedObject, generateImageFromPrompt, detectText } from '../services/imageEditorService';
+import { editImage, detectObjects, DetectedObject, generateImageFromPrompt, detectText, generateProductStaging } from '../services/imageEditorService';
 import { fileToBase64, parseDataUrl } from '../utils/fileUtils';
 import { EDIT_PRESETS, PresetKey } from '../constants/editPresets';
 import { UploadedImage } from '../types';
@@ -27,6 +27,13 @@ const ImageEditorPanel: React.FC<Props> = ({
   const [isDetecting, setIsDetecting] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatePrompt, setGeneratePrompt] = useState('');
+
+  // Product Staging states
+  const [moodReferenceType, setMoodReferenceType] = useState<'text' | 'image'>('text');
+  const [moodText, setMoodText] = useState('');
+  const [moodImage, setMoodImage] = useState<{ dataUrl: string; base64: string; mimeType: string } | null>(null);
+  const [selectedProductImage, setSelectedProductImage] = useState<UploadedImage | null>(null);
+  const [isGeneratingStaging, setIsGeneratingStaging] = useState(false);
 
   const handleFileUpload = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -173,6 +180,88 @@ const ImageEditorPanel: React.FC<Props> = ({
     }
   }, [generatePrompt, onImageAdd]);
 
+  const handleMoodImageUpload = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const dataUrl = await fileToBase64(file);
+      const { base64, mimeType } = parseDataUrl(dataUrl);
+      setMoodImage({ dataUrl, base64, mimeType });
+    } catch (error) {
+      console.error('Failed to upload mood image:', error);
+      setEditError('분위기 이미지 업로드 실패');
+    }
+  }, []);
+
+  const handleGenerateProductStaging = useCallback(async () => {
+    if (!selectedProductImage) {
+      setEditError('제품 이미지를 선택해주세요');
+      return;
+    }
+
+    if (moodReferenceType === 'text' && !moodText.trim()) {
+      setEditError('분위기 설명을 입력해주세요');
+      return;
+    }
+
+    if (moodReferenceType === 'image' && !moodImage) {
+      setEditError('분위기 참조 이미지를 업로드해주세요');
+      return;
+    }
+
+    setIsGeneratingStaging(true);
+    setEditError(null);
+
+    try {
+      const { base64: productBase64, mimeType: productMimeType } = parseDataUrl(selectedProductImage.dataUrl);
+
+      const moodReference = moodReferenceType === 'text'
+        ? moodText
+        : { base64: moodImage!.base64, mimeType: moodImage!.mimeType };
+
+      const stagedBase64 = await generateProductStaging(productBase64, productMimeType, moodReference);
+      const dataUrl = `data:image/png;base64,${stagedBase64}`;
+
+      // Get staged image dimensions
+      const img = new Image();
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = reject;
+        img.src = dataUrl;
+      });
+
+      // Create File object
+      const blob = await fetch(dataUrl).then(r => r.blob());
+      const file = new File([blob], `staged_${Date.now()}.png`, { type: 'image/png' });
+
+      const newImage: UploadedImage = {
+        id: crypto.randomUUID(),
+        file,
+        dataUrl,
+        fileName: `staged_${Date.now()}.png`,
+        mimeType: 'image/png',
+        width: img.width,
+        height: img.height,
+        sizeInBytes: blob.size,
+        uploadedAt: new Date(),
+      };
+
+      onImageAdd(newImage);
+      setSelectedImage(newImage);
+
+      // Clear form
+      setMoodText('');
+      setMoodImage(null);
+      setSelectedProductImage(null);
+    } catch (error) {
+      console.error('Failed to generate product staging:', error);
+      setEditError(error instanceof Error ? error.message : '제품 연출샷 생성 실패');
+    } finally {
+      setIsGeneratingStaging(false);
+    }
+  }, [selectedProductImage, moodReferenceType, moodText, moodImage, onImageAdd]);
+
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
@@ -211,6 +300,126 @@ const ImageEditorPanel: React.FC<Props> = ({
             className="w-full px-4 py-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isGenerating ? '생성 중...' : '🎨 이미지 생성'}
+          </button>
+        </div>
+
+        {/* Product Staging */}
+        <div className="mb-6 p-4 bg-gradient-to-br from-orange-900/30 to-pink-900/30 border-2 border-orange-500/50 rounded-lg">
+          <h4 className="text-sm font-bold text-orange-300 mb-3">🎬 제품 연출샷 생성</h4>
+
+          {/* Mood Reference Type Selection */}
+          <div className="mb-3">
+            <label className="text-xs text-gray-300 mb-1 block">분위기 참조 방법</label>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setMoodReferenceType('text')}
+                className={`flex-1 px-3 py-2 text-sm rounded-md transition-colors ${
+                  moodReferenceType === 'text'
+                    ? 'bg-orange-600 text-white'
+                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                }`}
+              >
+                📝 텍스트 설명
+              </button>
+              <button
+                onClick={() => setMoodReferenceType('image')}
+                className={`flex-1 px-3 py-2 text-sm rounded-md transition-colors ${
+                  moodReferenceType === 'image'
+                    ? 'bg-orange-600 text-white'
+                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                }`}
+              >
+                🖼️ 참조 이미지
+              </button>
+            </div>
+          </div>
+
+          {/* Mood Reference Input */}
+          {moodReferenceType === 'text' ? (
+            <div className="mb-3">
+              <label className="text-xs text-gray-300 mb-1 block">원하는 분위기 설명</label>
+              <textarea
+                value={moodText}
+                onChange={(e) => setMoodText(e.target.value)}
+                placeholder="예: 따뜻한 햇살이 비추는 밝은 주방, 나무 테이블 위에 제품 배치"
+                className="w-full px-3 py-2 bg-gray-900 border border-gray-600 rounded-md text-white text-sm min-h-20"
+              />
+            </div>
+          ) : (
+            <div className="mb-3">
+              <label className="text-xs text-gray-300 mb-1 block">분위기 참조 이미지</label>
+              {moodImage ? (
+                <div className="relative">
+                  <img src={moodImage.dataUrl} alt="Mood reference" className="w-full h-32 object-cover rounded-md" />
+                  <button
+                    onClick={() => setMoodImage(null)}
+                    className="absolute top-2 right-2 px-2 py-1 bg-red-600 hover:bg-red-700 text-white text-xs rounded-md"
+                  >
+                    삭제
+                  </button>
+                </div>
+              ) : (
+                <label className="block cursor-pointer">
+                  <div className="px-4 py-3 bg-gray-800 border-2 border-dashed border-gray-600 hover:border-orange-500 rounded-md text-center text-sm text-gray-400 transition-colors">
+                    📤 참조 이미지 업로드
+                  </div>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleMoodImageUpload}
+                    className="hidden"
+                  />
+                </label>
+              )}
+            </div>
+          )}
+
+          {/* Product Image Selection */}
+          <div className="mb-3">
+            <label className="text-xs text-gray-300 mb-1 block">제품 이미지 (누끼샷 권장)</label>
+            {selectedProductImage ? (
+              <div className="relative">
+                <img src={selectedProductImage.dataUrl} alt={selectedProductImage.fileName} className="w-full h-32 object-contain bg-black/20 rounded-md" />
+                <div className="absolute top-2 left-2 px-2 py-1 bg-green-600 text-white text-xs rounded-md">
+                  ✓ {selectedProductImage.fileName}
+                </div>
+                <button
+                  onClick={() => setSelectedProductImage(null)}
+                  className="absolute top-2 right-2 px-2 py-1 bg-red-600 hover:bg-red-700 text-white text-xs rounded-md"
+                >
+                  변경
+                </button>
+              </div>
+            ) : (
+              <div className="bg-gray-900 border border-gray-600 rounded-md p-3">
+                <p className="text-xs text-gray-400 mb-2">라이브러리에서 제품 이미지를 선택하세요</p>
+                <div className="grid grid-cols-3 gap-2 max-h-40 overflow-y-auto">
+                  {images.map((image) => (
+                    <div
+                      key={image.id}
+                      onClick={() => setSelectedProductImage(image)}
+                      className="relative aspect-square bg-black/20 rounded-md overflow-hidden cursor-pointer border-2 border-transparent hover:border-orange-500 transition-colors"
+                    >
+                      <img src={image.dataUrl} alt={image.fileName} className="w-full h-full object-cover" />
+                    </div>
+                  ))}
+                  {images.length === 0 && (
+                    <div className="col-span-3 text-xs text-gray-500 text-center py-4">
+                      이미지를 먼저 업로드해주세요
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Generate Button */}
+          <button
+            onClick={handleGenerateProductStaging}
+            disabled={isGeneratingStaging}
+            className="w-full px-4 py-3 bg-gradient-to-r from-orange-600 to-pink-600 hover:from-orange-700 hover:to-pink-700 text-white font-bold rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+          >
+            {isGeneratingStaging ? '🎬 연출샷 생성 중...' : '🎬 제품 연출샷 생성하기'}
           </button>
         </div>
 
