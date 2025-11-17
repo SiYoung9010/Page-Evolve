@@ -5,7 +5,7 @@ import { AnalysisResult } from '../types';
 import { PROMPTS, SYSTEM_INSTRUCTIONS } from '../config/prompts';
 import { CONFIG } from '../config/constants';
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY || '' });
 
 export const analyzeHtml = async (html: string): Promise<AnalysisResult> => {
   const prompt = PROMPTS.HTML_ANALYSIS(html);
