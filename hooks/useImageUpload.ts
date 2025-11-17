@@ -8,6 +8,7 @@ import {
   analyzeImageForInsertion
 } from '../services/imageService';
 import { saveImages, loadImages, deleteImageFromStorage, clearAllImagesFromStorage } from '../services/storageService';
+import { CONFIG } from '../config/constants';
 
 export const useImageUpload = (currentHtml: string) => {
   const [images, setImages] = useState<UploadedImage[]>([]);
@@ -40,8 +41,8 @@ export const useImageUpload = (currentHtml: string) => {
             console.warn(`Skipping non-image file: ${file.name}`);
             return false;
           }
-          if (file.size > 10 * 1024 * 1024) {
-             throw new Error(`File too large: ${file.name} (max 10MB)`);
+          if (file.size > CONFIG.IMAGE.MAX_FILE_SIZE_BYTES) {
+             throw new Error(`File too large: ${file.name} (max ${CONFIG.IMAGE.MAX_FILE_SIZE_MB}MB)`);
           }
           return true;
         })

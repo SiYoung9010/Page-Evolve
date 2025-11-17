@@ -1,5 +1,3 @@
-
-
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import HtmlEditor from './components/HtmlEditor';
 import PreviewPanel from './components/PreviewPanel';
@@ -9,75 +7,19 @@ import ImageLibrary from './components/ImageLibrary';
 import SeoPanel from './components/SeoPanel';
 import ReferencePanel from './components/ReferencePanel';
 import SlicingControls from './components/SlicingControls';
-import UserFeedbackPanel from './components/UserFeedbackPanel';
-import { analyzeHtml, applyFeedbackToHtml } from './services/geminiService';
+import EnhancedFeedbackPanel from './components/EnhancedFeedbackPanel';
+import { analyzeHtml, applyFeedbackToHtml, generateFeedbackSuggestions } from './services/geminiService';
 import { applySuggestion } from './services/htmlApplier';
 import { analyzeSeo } from './services/seoAnalyzer';
 import { createProjectData, loadProjectFromFile, downloadProject } from './services/projectService';
 import { exportPreviewAsImage, exportFullPageAsImage } from './services/exportService';
-import { useHtmlHistory } from './hooks/useHtmlHistory';
 import { useImageUpload } from './hooks/useImageUpload';
-import { Suggestion, AnalysisResult, ImagePosition, SeoAnalysis, Reference, ProjectData, HtmlHistory } from './types';
-
-const SAMPLE_HTML_INPUT = `<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <title>프리미엄 세럼</title>
-  <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; margin: 40px; background-color: #f9f9f9; color: #333; }
-    .container { max-width: 800px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
-    h1, h2 { color: #5a29e4; }
-    h1 { font-size: 2.5em; text-align: center; margin-bottom: 20px;}
-    h2 { border-bottom: 2px solid #e0e0e0; padding-bottom: 10px; margin-top: 30px;}
-    img { max-width: 100%; height: auto; border-radius: 8px; margin: 20px 0; }
-    p { line-height: 1.6; }
-    b { color: #5a29e4; font-weight: 600; }
-    ul { list-style-type: '✨'; padding-left: 20px; }
-    li { margin-bottom: 10px; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <h1>프리미엄 세럼 - 24시간 보습 지속</h1>
-    <img src="https://picsum.photos/800/500" alt="세럼 제품 이미지">
-    <h2>제품 설명</h2>
-    <p>피부에 좋은 제품입니다. <b>이 프리미엄 세럼은</b> 보습 효과가 뛰어납니다.</p>
-    <h2>특징</h2>
-    <ul>
-      <li>24시간 보습 지속</li>
-      <li>피부과 테스트 완료</li>
-      <li>무향, 무알코올</li>
-    </ul>
-  </div>
-</body>
-</html>`;
+import { usePageEvolve } from './contexts/PageEvolveContext';
+import { useFeedback } from './contexts/FeedbackContext';
+import { Suggestion, AnalysisResult, ImagePosition, Reference, ProjectData, HtmlHistory } from './types';
+import { CONFIG } from './config/constants';
 
 export default function App() {
-  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [applyingId, setApplyingId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'suggestions' | 'images' | 'seo' | 'references' | 'feedback'>('suggestions');
-  const [seoAnalysis, setSeoAnalysis] = useState<SeoAnalysis | null>(null);
-  const [isAnalyzingSeo, setIsAnalyzingSeo] = useState(false);
-  const [showEditor, setShowEditor] = useState(true);
-  
-  const [projectName, setProjectName] = useState('Untitled Project');
-  const [isExporting, setIsExporting] = useState(false);
-  const [references, setReferences] = useState<Reference[]>([]);
-  const [isDragging, setIsDragging] = useState(false);
-  const loadFileInputRef = useRef<HTMLInputElement>(null);
-
-  // User Feedback states
-  const [userFeedback, setUserFeedback] = useState('');
-  const [isApplyingFeedback, setIsApplyingFeedback] = useState(false);
-  const [feedbackError, setFeedbackError] = useState<string | null>(null);
-
-  // Image slicing states
-  const [isSlicingMode, setIsSlicingMode] = useState(false);
-  const [slicePositions, setSlicePositions] = useState<number[]>([]);
-
   const {
     currentHtml,
     history,
@@ -89,8 +31,52 @@ export default function App() {
     canUndo,
     canRedo,
     loadHistory,
-  } = useHtmlHistory(SAMPLE_HTML_INPUT);
-  
+    suggestions,
+    setSuggestions,
+    isAnalyzing,
+    setIsAnalyzing,
+    applyingId,
+    setApplyingId,
+    seoAnalysis,
+    setSeoAnalysis,
+    isAnalyzingSeo,
+    setIsAnalyzingSeo,
+    references,
+    setReferences,
+    activeTab,
+    setActiveTab,
+    showEditor,
+    setShowEditor,
+    error,
+    setError,
+    projectName,
+    setProjectName,
+    isExporting,
+    setIsExporting,
+    isSlicingMode,
+    setIsSlicingMode,
+    slicePositions,
+    setSlicePositions,
+  } = usePageEvolve();
+
+  const {
+    userFeedback,
+    setUserFeedback,
+    feedbackHistory,
+    addFeedbackToHistory,
+    clearFeedbackHistory,
+    isApplyingFeedback,
+    setIsApplyingFeedback,
+    feedbackError,
+    setFeedbackError,
+    selectedTemplate,
+    setSelectedTemplate,
+    aiSuggestions,
+    setAiSuggestions,
+    isGeneratingSuggestions,
+    setIsGeneratingSuggestions,
+  } = useFeedback();
+
   const {
     images,
     isUploading,
@@ -102,17 +88,23 @@ export default function App() {
     loadUploadedImages,
   } = useImageUpload(currentHtml);
 
+  const [isDragging, setIsDragging] = useState(false);
+  const loadFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Load showEditor state from localStorage
   useEffect(() => {
-    const savedState = localStorage.getItem('pageEvolve-showEditor');
+    const savedState = localStorage.getItem(CONFIG.STORAGE.EDITOR_STATE_KEY);
     if (savedState) {
       setShowEditor(savedState === 'true');
     }
-  }, []);
+  }, [setShowEditor]);
 
+  // Save showEditor state to localStorage
   useEffect(() => {
-    localStorage.setItem('pageEvolve-showEditor', String(showEditor));
+    localStorage.setItem(CONFIG.STORAGE.EDITOR_STATE_KEY, String(showEditor));
   }, [showEditor]);
-  
+
+  // Keyboard shortcuts
   useEffect(() => {
     const handleKeyPress = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'e') {
@@ -129,8 +121,8 @@ export default function App() {
     return () => {
       window.removeEventListener('keydown', handleKeyPress);
     };
-  }, [isSlicingMode]);
-  
+  }, [isSlicingMode, setShowEditor]);
+
   const handleAnalyze = useCallback(async () => {
     setIsAnalyzing(true);
     setError(null);
@@ -149,8 +141,8 @@ export default function App() {
     } finally {
       setIsAnalyzing(false);
     }
-  }, [currentHtml]);
-  
+  }, [currentHtml, setIsAnalyzing, setError, setSuggestions, setActiveTab]);
+
   const handleSeoAnalyze = useCallback(() => {
     setIsAnalyzingSeo(true);
     setError(null);
@@ -163,12 +155,12 @@ export default function App() {
     } finally {
       setIsAnalyzingSeo(false);
     }
-  }, [currentHtml]);
+  }, [currentHtml, setIsAnalyzingSeo, setError, setSeoAnalysis, setActiveTab]);
 
   const handleApply = useCallback(async (suggestion: Suggestion) => {
     setApplyingId(suggestion.id);
     setError(null);
-    
+
     await new Promise(resolve => setTimeout(resolve, 50));
 
     try {
@@ -190,7 +182,7 @@ export default function App() {
     } finally {
       setApplyingId(null);
     }
-  }, [currentHtml, addHistory]);
+  }, [currentHtml, addHistory, setApplyingId, setError, setSuggestions]);
 
   const handleApplyFeedback = useCallback(async () => {
     if (!userFeedback.trim()) {
@@ -201,19 +193,82 @@ export default function App() {
     setFeedbackError(null);
     setError(null);
 
+    // Get previous changes from feedback history
+    const previousChanges = feedbackHistory
+      .filter(h => h.success)
+      .slice(0, 3)
+      .map(h => h.feedback);
+
     try {
-      const newHtml = await applyFeedbackToHtml(currentHtml, userFeedback);
+      const newHtml = await applyFeedbackToHtml(currentHtml, userFeedback, {
+        previousChanges,
+      });
+
       if (!newHtml.trim().toLowerCase().includes('<html')) {
         throw new Error("AI returned an invalid response. It might be a note or a question. Please try rephrasing your feedback to be more specific.");
       }
-      addHistory(newHtml, 'Applied user feedback');
+
+      addHistory(newHtml, `Applied user feedback: ${userFeedback.slice(0, 50)}...`);
+
+      // Add to feedback history
+      addFeedbackToHistory({
+        feedback: userFeedback,
+        htmlBefore: currentHtml,
+        htmlAfter: newHtml,
+        success: true,
+      });
+
+      // Clear the input after successful application
+      setUserFeedback('');
+      setAiSuggestions([]);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'An unknown error occurred.';
       setFeedbackError(message);
+
+      // Add failed attempt to history
+      addFeedbackToHistory({
+        feedback: userFeedback,
+        htmlBefore: currentHtml,
+        htmlAfter: currentHtml,
+        success: false,
+        error: message,
+      });
     } finally {
       setIsApplyingFeedback(false);
     }
-  }, [currentHtml, userFeedback, addHistory]);
+  }, [
+    currentHtml,
+    userFeedback,
+    feedbackHistory,
+    addHistory,
+    addFeedbackToHistory,
+    setIsApplyingFeedback,
+    setFeedbackError,
+    setError,
+    setUserFeedback,
+    setAiSuggestions,
+  ]);
+
+  const handleGenerateFeedbackSuggestions = useCallback(async () => {
+    if (!userFeedback.trim() || userFeedback.length < 5) {
+      return;
+    }
+
+    setIsGeneratingSuggestions(true);
+    try {
+      const suggestions = await generateFeedbackSuggestions(userFeedback, currentHtml);
+      setAiSuggestions(suggestions);
+    } catch (err) {
+      console.error('Failed to generate suggestions:', err);
+    } finally {
+      setIsGeneratingSuggestions(false);
+    }
+  }, [userFeedback, currentHtml, setIsGeneratingSuggestions, setAiSuggestions]);
+
+  const handleReapplyFeedback = useCallback((feedback: string) => {
+    setUserFeedback(feedback);
+    setActiveTab('feedback');
+  }, [setUserFeedback, setActiveTab]);
 
   const handleImageInsert = useCallback((codeWithSrc: string, position: ImagePosition) => {
     setError(null);
@@ -228,7 +283,7 @@ export default function App() {
         action: position.action,
         applied: true,
       };
-      
+
       const result = applySuggestion(currentHtml, suggestionForHistory);
       if (result.success) {
         addHistory(result.newHtml, `Image inserted near ${position.targetSelector}`);
@@ -238,8 +293,8 @@ export default function App() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Image insertion failed');
     }
-  }, [currentHtml, addHistory]);
-  
+  }, [currentHtml, addHistory, setError]);
+
   const handleSaveProject = useCallback(() => {
     const projectData = createProjectData(
       projectName,
@@ -259,61 +314,70 @@ export default function App() {
     setSeoAnalysis(project.seoAnalysis);
     loadHistory(project.history, project.historyIndex);
     loadUploadedImages(project.images);
-  }, [loadHistory, loadUploadedImages]);
-
+  }, [loadHistory, loadUploadedImages, setProjectName, setSuggestions, setSeoAnalysis]);
 
   const handleLoadProjectFile = useCallback(async (file: File) => {
     try {
-        const projectData = await loadProjectFromFile(file);
-        restoreProjectState(projectData);
+      const projectData = await loadProjectFromFile(file);
+      restoreProjectState(projectData);
     } catch (err) {
-        alert(err instanceof Error ? err.message : 'Failed to load project file.');
+      alert(err instanceof Error ? err.message : 'Failed to load project file.');
     }
   }, [restoreProjectState]);
-  
+
   const handleExportImage = useCallback(async (type: 'visible' | 'full') => {
     setIsExporting(true);
     try {
-        const service = type === 'visible' ? exportPreviewAsImage : exportFullPageAsImage;
-        const fileName = `${projectName.replace(/\s+/g, '_')}_${type}.png`;
-        await service('preview-iframe', fileName);
+      const service = type === 'visible' ? exportPreviewAsImage : exportFullPageAsImage;
+      const fileName = `${projectName.replace(/\s+/g, '_')}_${type}.png`;
+      await service('preview-iframe', fileName);
     } catch (err) {
-        alert('Export failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+      alert('Export failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
     } finally {
-        setIsExporting(false);
+      setIsExporting(false);
     }
-  }, [projectName]);
-  
+  }, [projectName, setIsExporting]);
+
   const handleAddReference = useCallback(() => {
     const newRef: Reference = {
-        id: crypto.randomUUID(),
-        title: `Reference - ${new Date().toLocaleString()}`,
-        category: 'Uncategorized',
-        tags: [],
-        content: currentHtml,
-        notes: 'Saved from current page',
-        createdAt: new Date(),
-        isFavorite: false,
+      id: crypto.randomUUID(),
+      title: `Reference - ${new Date().toLocaleString()}`,
+      category: 'Uncategorized',
+      tags: [],
+      content: currentHtml,
+      notes: 'Saved from current page',
+      createdAt: new Date(),
+      isFavorite: false,
     };
     setReferences(prev => [newRef, ...prev]);
     setActiveTab('references');
-  }, [currentHtml]);
+  }, [currentHtml, setReferences, setActiveTab]);
 
   const handleDeleteReference = useCallback((id: string) => {
     setReferences(prev => prev.filter(ref => ref.id !== id));
-  }, []);
+  }, [setReferences]);
 
   const handleInsertReference = useCallback((content: string) => {
     addHistory(content, 'Loaded from reference');
   }, [addHistory]);
 
-  const handleDragOver = useCallback((e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); setIsDragging(true); }, []);
-  const handleDragLeave = useCallback((e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); setIsDragging(false); }, []);
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  }, []);
+
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
-    
+
     if (e.dataTransfer.files && e.dataTransfer.files.length === 1) {
       handleLoadProjectFile(e.dataTransfer.files[0]);
     } else {
@@ -321,34 +385,34 @@ export default function App() {
     }
   }, [handleLoadProjectFile]);
 
-    const handleCancelSlicing = useCallback(() => {
-        setIsSlicingMode(false);
-        setSlicePositions([]);
-    }, []);
+  const handleCancelSlicing = useCallback(() => {
+    setIsSlicingMode(false);
+    setSlicePositions([]);
+  }, [setIsSlicingMode, setSlicePositions]);
 
-    const handleToggleSlicingMode = useCallback(() => {
-        setIsSlicingMode(prev => !prev);
-        if (isSlicingMode) {
-            handleCancelSlicing();
-        }
-    }, [isSlicingMode, handleCancelSlicing]);
+  const handleToggleSlicingMode = useCallback(() => {
+    setIsSlicingMode(prev => !prev);
+    if (isSlicingMode) {
+      handleCancelSlicing();
+    }
+  }, [isSlicingMode, handleCancelSlicing, setIsSlicingMode]);
 
-    const handleExportSlices = useCallback(async () => {
-        if (slicePositions.length === 0) {
-            alert("Please add at least one slice line by clicking in the preview.");
-            return;
-        }
-        setIsExporting(true);
-        try {
-            const fileName = `${projectName.replace(/\s+/g, '_')}_sliced.png`;
-            await exportFullPageAsImage('preview-iframe', fileName, slicePositions);
-        } catch (err) {
-            alert('Export failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
-        } finally {
-            setIsExporting(false);
-            handleCancelSlicing();
-        }
-    }, [projectName, slicePositions, handleCancelSlicing]);
+  const handleExportSlices = useCallback(async () => {
+    if (slicePositions.length === 0) {
+      alert("Please add at least one slice line by clicking in the preview.");
+      return;
+    }
+    setIsExporting(true);
+    try {
+      const fileName = `${projectName.replace(/\s+/g, '_')}_sliced.png`;
+      await exportFullPageAsImage('preview-iframe', fileName, slicePositions);
+    } catch (err) {
+      alert('Export failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+    } finally {
+      setIsExporting(false);
+      handleCancelSlicing();
+    }
+  }, [projectName, slicePositions, handleCancelSlicing, setIsExporting]);
 
   return (
     <div className="flex flex-col h-screen bg-gray-900 text-white" onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
@@ -373,14 +437,14 @@ export default function App() {
             title="Project Name"
           />
         </div>
-        
+
         <div className="flex items-center gap-2">
-           <button onClick={() => setShowEditor(prev => !prev)} className={`px-3 py-1.5 rounded-md font-semibold text-sm transition-all ${showEditor ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-blue-600 text-white hover:bg-blue-700'}`} title="Toggle Editor (Ctrl+E)">{showEditor ? 'Hide Editor' : 'Show Editor'}</button>
-           <button onClick={handleSaveProject} className="px-3 py-1.5 text-sm font-semibold bg-blue-600 rounded-md hover:bg-blue-700 transition-colors" title="Save Project">💾 Save</button>
-           <button onClick={() => loadFileInputRef.current?.click()} className="px-3 py-1.5 text-sm font-semibold bg-blue-600 rounded-md hover:bg-blue-700 transition-colors" title="Load Project">📂 Load</button>
+          <button onClick={() => setShowEditor(prev => !prev)} className={`px-3 py-1.5 rounded-md font-semibold text-sm transition-all ${showEditor ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-blue-600 text-white hover:bg-blue-700'}`} title="Toggle Editor (Ctrl+E)">{showEditor ? 'Hide Editor' : 'Show Editor'}</button>
+          <button onClick={handleSaveProject} className="px-3 py-1.5 text-sm font-semibold bg-blue-600 rounded-md hover:bg-blue-700 transition-colors" title="Save Project">💾 Save</button>
+          <button onClick={() => loadFileInputRef.current?.click()} className="px-3 py-1.5 text-sm font-semibold bg-blue-600 rounded-md hover:bg-blue-700 transition-colors" title="Load Project">📂 Load</button>
           <input type="file" ref={loadFileInputRef} onChange={(e) => e.target.files && handleLoadProjectFile(e.target.files[0])} className="hidden" accept=".json" />
 
-           <button onClick={undo} disabled={!canUndo} className="px-3 py-1.5 text-sm font-semibold bg-gray-700 rounded-md disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-600 transition-colors" title="Undo (Ctrl+Z)">↶ Undo</button>
+          <button onClick={undo} disabled={!canUndo} className="px-3 py-1.5 text-sm font-semibold bg-gray-700 rounded-md disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-600 transition-colors" title="Undo (Ctrl+Z)">↶ Undo</button>
           <button onClick={redo} disabled={!canRedo} className="px-3 py-1.5 text-sm font-semibold bg-gray-700 rounded-md disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-600 transition-colors" title="Redo (Ctrl+Y)">Redo ↷</button>
           <button onClick={handleSeoAnalyze} disabled={isAnalyzingSeo} className="px-4 py-2 text-sm font-bold text-white bg-gradient-to-r from-green-600 to-emerald-600 rounded-md disabled:opacity-50">{isAnalyzingSeo ? 'Checking...' : '📊 SEO Check'}</button>
           <button onClick={handleAnalyze} disabled={isAnalyzing} className="px-4 py-2 text-sm font-bold text-white bg-gradient-to-r from-purple-600 to-pink-600 rounded-md disabled:opacity-50">{isAnalyzing ? 'Analyzing...' : '🤖 AI Analyze'}</button>
@@ -393,17 +457,17 @@ export default function App() {
         {showEditor && (
           <div className="flex flex-col border-r border-gray-700 min-h-0">
             <div className="flex border-b border-gray-700 shrink-0">
-                <div className={`flex-1 p-3 text-sm font-bold bg-gray-900 text-purple-400`}>
-                    &lt;/&gt; HTML Editor
-                </div>
+              <div className={`flex-1 p-3 text-sm font-bold bg-gray-900 text-purple-400`}>
+                &lt;/&gt; HTML Editor
+              </div>
             </div>
-            
+
             <div className="flex-1 min-h-0">
-                <HtmlEditor 
-                    language="html"
-                    value={currentHtml}
-                    onChange={updateCurrentHistoryEntry}
-                />
+              <HtmlEditor
+                language="html"
+                value={currentHtml}
+                onChange={updateCurrentHistoryEntry}
+              />
             </div>
           </div>
         )}
@@ -413,16 +477,16 @@ export default function App() {
             <h2 className="text-lg font-bold">👁️ Live Preview</h2>
             <div className="flex items-center gap-2">
               <button onClick={() => handleExportImage('visible')} disabled={isExporting || isSlicingMode} className="px-3 py-1 text-xs font-semibold bg-green-700 rounded-md hover:bg-green-600 transition-colors disabled:opacity-50">{isExporting ? '...' : '📷 Export View'}</button>
-               <button onClick={() => handleExportImage('full')} disabled={isExporting || isSlicingMode} className="px-3 py-1 text-xs font-semibold bg-green-700 rounded-md hover:bg-green-600 transition-colors disabled:opacity-50">{isExporting ? '...' : '📜 Export Full'}</button>
+              <button onClick={() => handleExportImage('full')} disabled={isExporting || isSlicingMode} className="px-3 py-1 text-xs font-semibold bg-green-700 rounded-md hover:bg-green-600 transition-colors disabled:opacity-50">{isExporting ? '...' : '📜 Export Full'}</button>
               <button onClick={handleToggleSlicingMode} disabled={isExporting} className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors disabled:opacity-50 ${isSlicingMode ? 'bg-red-600 hover:bg-red-700' : 'bg-yellow-600 hover:bg-yellow-700'}`}>{isSlicingMode ? 'Cancel Slicing' : '✂️ Slice Export'}</button>
             </div>
           </div>
           <div className="flex-1 bg-white min-h-0">
             <PreviewPanel
-                html={currentHtml}
-                isSlicingMode={isSlicingMode}
-                slicePositions={slicePositions}
-                onSlicePositionsChange={setSlicePositions}
+              html={currentHtml}
+              isSlicingMode={isSlicingMode}
+              slicePositions={slicePositions}
+              onSlicePositionsChange={setSlicePositions}
             />
           </div>
         </div>
@@ -436,7 +500,7 @@ export default function App() {
               📊 SEO
               {seoAnalysis && <span className={`font-bold ml-1 ${seoAnalysis.score >= 80 ? 'text-green-400' : seoAnalysis.score > 50 ? 'text-yellow-400' : 'text-red-400'}`}>({seoAnalysis.score})</span>}
             </button>
-             <button onClick={() => setActiveTab('references')} className={`flex-1 p-3 text-sm font-bold transition-colors ${activeTab === 'references' ? 'bg-gray-900 text-blue-400 border-b-2 border-blue-400' : 'text-gray-400 hover:bg-gray-700'}`}>📚 Refs ({references.length})</button>
+            <button onClick={() => setActiveTab('references')} className={`flex-1 p-3 text-sm font-bold transition-colors ${activeTab === 'references' ? 'bg-gray-900 text-blue-400 border-b-2 border-blue-400' : 'text-gray-400 hover:bg-gray-700'}`}>📚 Refs ({references.length})</button>
           </div>
 
           <div className="flex-1 overflow-y-auto">
@@ -445,27 +509,33 @@ export default function App() {
                 {error && !uploadError && <div className="p-3 bg-red-900/50 border border-red-500 rounded-lg text-red-200 text-sm"><strong>Error:</strong> {error}</div>}
                 {isAnalyzing && <div className="text-center text-gray-400 p-8"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-purple-500 mx-auto mb-3"></div><p>Analyzing your page...</p></div>}
                 {!isAnalyzing && suggestions.length === 0 && <div className="text-center text-gray-500 pt-8 space-y-3"><p>Click "🤖 AI Analyze" to get improvement suggestions.</p></div>}
-                {suggestions.map(suggestion => <AiSuggestionCard key={suggestion.id} suggestion={suggestion} onApply={handleApply} isApplying={applyingId === suggestion.id}/>)}
+                {suggestions.map(suggestion => <AiSuggestionCard key={suggestion.id} suggestion={suggestion} onApply={handleApply} isApplying={applyingId === suggestion.id} />)}
               </div>
             )}
             {activeTab === 'images' && (
               <div>
                 <ImageUploader onUpload={uploadImages} isUploading={isUploading} />
                 {(uploadError || (error && activeTab === 'images')) && <div className="mx-4 mb-4 p-3 bg-red-900/50 border border-red-500 rounded-lg text-red-200 text-sm">{uploadError || error}</div>}
-                <ImageLibrary images={images} analyzingImageId={analyzingImageId} onAnalyze={analyzeImage} onInsert={handleImageInsert} onDelete={removeImage}/>
+                <ImageLibrary images={images} analyzingImageId={analyzingImageId} onAnalyze={analyzeImage} onInsert={handleImageInsert} onDelete={removeImage} />
               </div>
             )}
             {activeTab === 'feedback' && (
-              <UserFeedbackPanel
+              <EnhancedFeedbackPanel
                 feedback={userFeedback}
                 onFeedbackChange={setUserFeedback}
                 onSubmit={handleApplyFeedback}
                 isApplying={isApplyingFeedback}
                 error={feedbackError}
+                feedbackHistory={feedbackHistory}
+                onClearHistory={clearFeedbackHistory}
+                onReapplyFeedback={handleReapplyFeedback}
+                aiSuggestions={aiSuggestions}
+                onGenerateSuggestions={handleGenerateFeedbackSuggestions}
+                isGeneratingSuggestions={isGeneratingSuggestions}
               />
             )}
             {activeTab === 'seo' && <SeoPanel analysis={seoAnalysis} isAnalyzing={isAnalyzingSeo} />}
-            {activeTab === 'references' && <ReferencePanel references={references} onAdd={handleAddReference} onDelete={handleDeleteReference} onInsert={handleInsertReference}/>}
+            {activeTab === 'references' && <ReferencePanel references={references} onAdd={handleAddReference} onDelete={handleDeleteReference} onInsert={handleInsertReference} />}
           </div>
         </div>
       </main>

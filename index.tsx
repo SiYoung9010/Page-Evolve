@@ -2,6 +2,9 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { PageEvolveProvider } from './contexts/PageEvolveContext';
+import { FeedbackProvider } from './contexts/FeedbackContext';
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
@@ -11,6 +14,12 @@ if (!rootElement) {
 const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
-    <App />
+    <ErrorBoundary>
+      <PageEvolveProvider>
+        <FeedbackProvider>
+          <App />
+        </FeedbackProvider>
+      </PageEvolveProvider>
+    </ErrorBoundary>
   </React.StrictMode>
 );

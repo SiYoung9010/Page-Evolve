@@ -2,6 +2,8 @@
 
 import { GoogleGenAI, Type } from '@google/genai';
 import { ImageAnalysisResult, ImagePosition } from '../types';
+import { PROMPTS } from '../config/prompts';
+import { CONFIG } from '../config/constants';
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
@@ -77,30 +79,12 @@ export const analyzeImageForInsertion = async (
   currentHtml: string
 ): Promise<ImageAnalysisResult> => {
   const { mimeType, base64Data } = parseDataUrl(imageDataUrl);
-  
-  const prompt = `
-Analyze this image and suggest how to insert it into a product detail page HTML.
-
-Current HTML Structure (simplified):
-${extractStructureSummary(currentHtml)}
-
-Provide your response in JSON format according to the provided schema.
-1.  **description**: Describe what is shown in the image in Korean (1 sentence).
-2.  **altText**: Create an SEO-optimized alt text in Korean (max 50 characters).
-3.  **altVariations**: Provide 3 alternative alt text options.
-4.  **suggestedPositions**: Suggest 1-3 optimal positions to insert this image.
-
-For each position:
--   **targetSelector**: A specific CSS selector of the target element.
--   **reason**: Explain why this position is effective in Korean.
--   **priority**: 'high', 'medium', or 'low'.
--   **code**: A complete <img> tag. Use 'PLACEHOLDER' for the src attribute.
--   **action**: 'replace', 'insert_before', or 'insert_after'.
-`;
+  const htmlStructure = extractStructureSummary(currentHtml);
+  const prompt = PROMPTS.IMAGE_ANALYSIS(htmlStructure);
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: CONFIG.AI.DEFAULT_MODEL,
       contents: {
         parts: [
           { inlineData: { data: base64Data, mimeType: mimeType } },
