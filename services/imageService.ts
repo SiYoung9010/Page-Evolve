@@ -5,7 +5,7 @@ import { ImageAnalysisResult, ImagePosition } from '../types';
 import { PROMPTS } from '../config/prompts';
 import { CONFIG } from '../config/constants';
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY || '' });
 
 /**
  * Converts a File object to a Base64 Data URL.
