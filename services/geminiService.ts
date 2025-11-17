@@ -2,27 +2,13 @@
 
 import { GoogleGenAI, GenerateContentResponse, Type } from '@google/genai';
 import { AnalysisResult } from '../types';
+import { PROMPTS, SYSTEM_INSTRUCTIONS } from '../config/prompts';
+import { CONFIG } from '../config/constants';
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const analyzeHtml = async (html: string): Promise<AnalysisResult> => {
-  const prompt = `
-You are an expert marketing and web development consultant. Analyze the following product detail page HTML and provide suggestions for improvement based on the provided JSON schema.
-
-HTML Code:
-\`\`\`html
-${html}
-\`\`\`
-
-Analysis Rules:
-- Provide a maximum of 5 suggestions.
-- Include 1-2 'high' priority suggestions.
-- The 'message' should be concrete and explain the reasoning.
-- The 'code' should be a valid HTML snippet.
-- The 'targetSelector' should be a specific and valid CSS selector.
-- The 'action' must be one of: 'replace', 'insert_before', 'insert_after', 'wrap'.
-- Example: "❌ Add image" -> "✅ Add a before-and-after comparison image to build trust and potentially increase conversion rates by 15%."
-`;
+  const prompt = PROMPTS.HTML_ANALYSIS(html);
 
   try {
     const response: GenerateContentResponse = await ai.models.generateContent({
@@ -79,47 +65,86 @@ Analysis Rules:
  * Applies user feedback to the given HTML using an AI model.
  * @param currentHtml The current HTML content.
  * @param userFeedback The user's requested changes in natural language.
+ * @param context Optional context for better AI responses
  * @returns The complete, updated HTML string.
  */
 export const applyFeedbackToHtml = async (
-    currentHtml: string, 
-    userFeedback: string
+    currentHtml: string,
+    userFeedback: string,
+    context?: {
+        previousChanges?: string[];
+        pageGoal?: string;
+    }
 ): Promise<string> => {
-    const prompt = `You are an expert frontend developer. The user has provided feedback on their product page. Apply their requested changes to the HTML and return the complete, updated HTML.
+    const prompt = PROMPTS.USER_FEEDBACK_ENHANCED(currentHtml, userFeedback, context);
 
-CRITICAL: Return ONLY the complete HTML. Do not include any explanations, markdown formatting (like \`\`\`html), or any text other than the HTML code itself.
-
-User Feedback:
-"${userFeedback}"
-
-Current HTML:
-\`\`\`html
-${currentHtml}
-\`\`\`
-`;
     try {
         const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: CONFIG.AI.DEFAULT_MODEL,
             contents: prompt,
             config: {
-                systemInstruction: 'You are an expert web developer specializing in e-commerce pages. Modify HTML based on user instructions and return only the complete, valid HTML code. Preserve all existing styles and scripts unless asked to change them.',
-                temperature: 0.5,
+                systemInstruction: SYSTEM_INSTRUCTIONS.HTML_MODIFIER,
+                temperature: CONFIG.AI.TEMPERATURE,
             }
         });
-        
+
         let modifiedHtml = response.text.trim();
-        
-        // A simple check to remove markdown fences if the model accidentally adds them
+
+        // Remove markdown fences if the model accidentally adds them
         if (modifiedHtml.startsWith('```html')) {
             modifiedHtml = modifiedHtml.replace(/^```html\n|```$/g, '').trim();
         }
         if (modifiedHtml.startsWith('```')) {
              modifiedHtml = modifiedHtml.replace(/^```\n|```$/g, '').trim();
         }
-        
+
         return modifiedHtml;
     } catch (error) {
         console.error('Gemini API Error (applyFeedbackToHtml):', error);
         throw new Error('AI failed to apply feedback: ' + (error instanceof Error ? error.message : 'An unknown error occurred'));
+    }
+};
+
+/**
+ * Generates feedback suggestions based on vague user input
+ */
+export const generateFeedbackSuggestions = async (
+    vagueFeedback: string,
+    currentHtml: string
+): Promise<string[]> => {
+    const prompt = PROMPTS.FEEDBACK_IMPROVEMENT_SUGGESTION(vagueFeedback, currentHtml);
+
+    try {
+        const response = await ai.models.generateContent({
+            model: CONFIG.AI.DEFAULT_MODEL,
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        suggestions: {
+                            type: Type.ARRAY,
+                            items: {
+                                type: Type.OBJECT,
+                                properties: {
+                                    feedback: { type: Type.STRING },
+                                    changes: { type: Type.STRING },
+                                    benefit: { type: Type.STRING },
+                                },
+                                required: ['feedback', 'changes', 'benefit'],
+                            },
+                        },
+                    },
+                    required: ['suggestions'],
+                },
+            }
+        });
+
+        const parsed = JSON.parse(response.text);
+        return parsed.suggestions.map((s: any) => s.feedback);
+    } catch (error) {
+        console.error('Gemini API Error (generateFeedbackSuggestions):', error);
+        return [];
     }
 };

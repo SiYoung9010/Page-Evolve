@@ -1,5 +1,6 @@
 // services/exportService.ts
 import html2canvas from 'html2canvas';
+import { CONFIG } from '../config/constants';
 
 /**
  * Exports the visible content of the preview iframe as an image.
@@ -20,17 +21,17 @@ export const exportPreviewAsImage = async (
   
   const canvas = await html2canvas(body, {
     backgroundColor: '#ffffff',
-    scale: 2,
+    scale: CONFIG.EXPORT.CANVAS_SCALE,
     useCORS: true,
     allowTaint: true,
     logging: false,
   });
-  
+
   canvas.toBlob((blob) => {
     if (!blob) {
       throw new Error('Failed to create image blob from canvas.');
     }
-    
+
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -83,7 +84,7 @@ export const exportFullPageAsImage = async (
   const html = doc.documentElement;
 
   const fullHeight = Math.max(body.scrollHeight, body.offsetHeight, html.clientHeight, html.scrollHeight, html.offsetHeight);
-  const SCALE = 2;
+  const SCALE = CONFIG.EXPORT.CANVAS_SCALE;
 
   const mainCanvas = await html2canvas(body, {
     backgroundColor: '#ffffff',
@@ -105,7 +106,7 @@ export const exportFullPageAsImage = async (
     const scaledPositions = slicePositions.map(p => p * SCALE);
     boundaries = [0, ...scaledPositions.filter(p => p < canvasHeight), canvasHeight];
   } else {
-    const MAX_HEIGHT = 5000 * SCALE;
+    const MAX_HEIGHT = CONFIG.EXPORT.MAX_SLICE_HEIGHT * SCALE;
     if (canvasHeight <= MAX_HEIGHT) {
       await downloadCanvas(mainCanvas, fileName);
       return;

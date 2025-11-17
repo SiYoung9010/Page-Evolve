@@ -1,5 +1,6 @@
 // services/projectService.ts
 import { ProjectData, ProjectMetadata, Suggestion, UploadedImage, SeoAnalysis, HtmlHistory } from '../types';
+import { CONFIG } from '../config/constants';
 
 /**
  * Downloads the current project state as a JSON file.
@@ -98,8 +99,8 @@ export const createProjectData = (
  */
 export const saveRecentProjects = (projects: ProjectMetadata[]): void => {
   try {
-    const json = JSON.stringify(projects.slice(0, 10)); // Save up to 10 recent projects
-    localStorage.setItem('pageEvolve-recentProjects', json);
+    const json = JSON.stringify(projects.slice(0, CONFIG.UI.RECENT_PROJECTS_LIMIT));
+    localStorage.setItem(CONFIG.STORAGE.PROJECTS_KEY, json);
   } catch (err) {
     console.error('Failed to save recent projects:', err);
   }
@@ -110,7 +111,7 @@ export const saveRecentProjects = (projects: ProjectMetadata[]): void => {
  */
 export const loadRecentProjects = (): ProjectMetadata[] => {
   try {
-    const json = localStorage.getItem('pageEvolve-recentProjects');
+    const json = localStorage.getItem(CONFIG.STORAGE.PROJECTS_KEY);
     if (!json) return [];
     
     const data = JSON.parse(json);

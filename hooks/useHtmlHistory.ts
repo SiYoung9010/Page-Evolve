@@ -2,8 +2,9 @@
 // hooks/useHtmlHistory.ts
 import { useState, useCallback } from 'react';
 import { HtmlHistory } from '../types';
+import { CONFIG } from '../config/constants';
 
-const MAX_HISTORY_LENGTH = 20; // Maximum number of undo steps
+const MAX_HISTORY_LENGTH = CONFIG.HISTORY.MAX_LENGTH;
 
 export const useHtmlHistory = (initialHtml: string) => {
   const [history, setHistory] = useState<HtmlHistory[]>([

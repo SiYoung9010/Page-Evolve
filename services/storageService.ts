@@ -1,9 +1,10 @@
 // services/storageService.ts
 
 import { UploadedImage } from '../types';
+import { CONFIG } from '../config/constants';
 
-const STORAGE_KEY = 'page-evolve-images';
-const MAX_STORAGE_SIZE = 5 * 1024 * 1024; // 5MB
+const STORAGE_KEY = CONFIG.STORAGE.IMAGE_STORAGE_KEY;
+const MAX_STORAGE_SIZE = CONFIG.STORAGE.MAX_SIZE_BYTES;
 
 /**
  * Saves a list of images to localStorage.
