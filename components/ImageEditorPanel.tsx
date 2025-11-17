@@ -1,7 +1,19 @@
 import React, { useState, useCallback, ChangeEvent } from 'react';
-import { editImage, detectObjects, DetectedObject, generateImageFromPrompt, detectText, generateProductStaging } from '../services/imageEditorService';
+import {
+  editImage,
+  detectObjects,
+  DetectedObject,
+  generateImageFromPrompt,
+  detectText,
+  generateProductStaging,
+  generateABTestVariations,
+  removeBackground,
+  addWatermark,
+} from '../services/imageEditorService';
 import { fileToBase64, parseDataUrl } from '../utils/fileUtils';
 import { EDIT_PRESETS, PresetKey } from '../constants/editPresets';
+import { MOOD_PRESETS, MoodPresetKey } from '../constants/moodPresets';
+import { ASPECT_RATIOS, AspectRatioKey } from '../constants/aspectRatios';
 import { UploadedImage } from '../types';
 
 interface Props {
@@ -29,11 +41,25 @@ const ImageEditorPanel: React.FC<Props> = ({
   const [generatePrompt, setGeneratePrompt] = useState('');
 
   // Product Staging states
-  const [moodReferenceType, setMoodReferenceType] = useState<'text' | 'image'>('text');
+  const [moodReferenceType, setMoodReferenceType] = useState<'text' | 'image' | 'preset'>('preset');
   const [moodText, setMoodText] = useState('');
   const [moodImage, setMoodImage] = useState<{ dataUrl: string; base64: string; mimeType: string } | null>(null);
+  const [selectedMoodPreset, setSelectedMoodPreset] = useState<MoodPresetKey | null>(null);
   const [selectedProductImage, setSelectedProductImage] = useState<UploadedImage | null>(null);
+  const [selectedProductImages, setSelectedProductImages] = useState<UploadedImage[]>([]);
   const [isGeneratingStaging, setIsGeneratingStaging] = useState(false);
+  const [selectedAspectRatio, setSelectedAspectRatio] = useState<AspectRatioKey>('square');
+  const [isABTestMode, setIsABTestMode] = useState(false);
+  const [isBatchMode, setIsBatchMode] = useState(false);
+  const [abTestResults, setAbTestResults] = useState<string[]>([]);
+
+  // Background removal state
+  const [isRemovingBackground, setIsRemovingBackground] = useState(false);
+
+  // Watermark states
+  const [watermarkLogo, setWatermarkLogo] = useState<{ dataUrl: string; base64: string; mimeType: string } | null>(null);
+  const [watermarkPosition, setWatermarkPosition] = useState<'bottom-right' | 'bottom-left' | 'top-right' | 'top-left' | 'center'>('bottom-right');
+  const [isAddingWatermark, setIsAddingWatermark] = useState(false);
 
   const handleFileUpload = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -195,7 +221,9 @@ const ImageEditorPanel: React.FC<Props> = ({
   }, []);
 
   const handleGenerateProductStaging = useCallback(async () => {
-    if (!selectedProductImage) {
+    const productsToProcess = isBatchMode ? selectedProductImages : (selectedProductImage ? [selectedProductImage] : []);
+
+    if (productsToProcess.length === 0) {
       setEditError('제품 이미지를 선택해주세요');
       return;
     }
@@ -210,20 +238,119 @@ const ImageEditorPanel: React.FC<Props> = ({
       return;
     }
 
+    if (moodReferenceType === 'preset' && !selectedMoodPreset) {
+      setEditError('분위기 프리셋을 선택해주세요');
+      return;
+    }
+
     setIsGeneratingStaging(true);
+    setEditError(null);
+    setAbTestResults([]);
+
+    try {
+      for (const productImage of productsToProcess) {
+        const { base64: productBase64, mimeType: productMimeType } = parseDataUrl(productImage.dataUrl);
+
+        let moodReference: string | { base64: string; mimeType: string };
+        if (moodReferenceType === 'text') {
+          moodReference = moodText;
+        } else if (moodReferenceType === 'image') {
+          moodReference = { base64: moodImage!.base64, mimeType: moodImage!.mimeType };
+        } else {
+          moodReference = MOOD_PRESETS[selectedMoodPreset!].prompt;
+        }
+
+        if (isABTestMode) {
+          // Generate 3 variations
+          const variations = await generateABTestVariations(productBase64, productMimeType, moodReference);
+
+          for (let i = 0; i < variations.length; i++) {
+            const dataUrl = `data:image/png;base64,${variations[i]}`;
+            const img = new Image();
+            await new Promise<void>((resolve, reject) => {
+              img.onload = () => resolve();
+              img.onerror = reject;
+              img.src = dataUrl;
+            });
+
+            const blob = await fetch(dataUrl).then(r => r.blob());
+            const file = new File([blob], `ab_test_${i + 1}_${Date.now()}.png`, { type: 'image/png' });
+
+            const newImage: UploadedImage = {
+              id: crypto.randomUUID(),
+              file,
+              dataUrl,
+              fileName: `ab_test_${i + 1}_${Date.now()}.png`,
+              mimeType: 'image/png',
+              width: img.width,
+              height: img.height,
+              sizeInBytes: blob.size,
+              uploadedAt: new Date(),
+            };
+
+            onImageAdd(newImage);
+            setAbTestResults(prev => [...prev, dataUrl]);
+          }
+        } else {
+          // Single generation
+          const stagedBase64 = await generateProductStaging(productBase64, productMimeType, moodReference);
+          const dataUrl = `data:image/png;base64,${stagedBase64}`;
+
+          const img = new Image();
+          await new Promise<void>((resolve, reject) => {
+            img.onload = () => resolve();
+            img.onerror = reject;
+            img.src = dataUrl;
+          });
+
+          const blob = await fetch(dataUrl).then(r => r.blob());
+          const file = new File([blob], `staged_${Date.now()}.png`, { type: 'image/png' });
+
+          const newImage: UploadedImage = {
+            id: crypto.randomUUID(),
+            file,
+            dataUrl,
+            fileName: `staged_${Date.now()}.png`,
+            mimeType: 'image/png',
+            width: img.width,
+            height: img.height,
+            sizeInBytes: blob.size,
+            uploadedAt: new Date(),
+          };
+
+          onImageAdd(newImage);
+          setSelectedImage(newImage);
+        }
+      }
+
+      // Clear form
+      if (!isBatchMode) {
+        setMoodText('');
+        setMoodImage(null);
+        setSelectedProductImage(null);
+        setSelectedMoodPreset(null);
+      } else {
+        setSelectedProductImages([]);
+      }
+    } catch (error) {
+      console.error('Failed to generate product staging:', error);
+      setEditError(error instanceof Error ? error.message : '제품 연출샷 생성 실패');
+    } finally {
+      setIsGeneratingStaging(false);
+    }
+  }, [selectedProductImage, selectedProductImages, isBatchMode, isABTestMode, moodReferenceType, moodText, moodImage, selectedMoodPreset, onImageAdd]);
+
+  const handleRemoveBackground = useCallback(async () => {
+    if (!selectedImage) return;
+
+    setIsRemovingBackground(true);
     setEditError(null);
 
     try {
-      const { base64: productBase64, mimeType: productMimeType } = parseDataUrl(selectedProductImage.dataUrl);
+      const { base64, mimeType } = parseDataUrl(selectedImage.dataUrl);
+      const removedBgBase64 = await removeBackground(base64, mimeType);
+      const dataUrl = `data:image/png;base64,${removedBgBase64}`;
 
-      const moodReference = moodReferenceType === 'text'
-        ? moodText
-        : { base64: moodImage!.base64, mimeType: moodImage!.mimeType };
-
-      const stagedBase64 = await generateProductStaging(productBase64, productMimeType, moodReference);
-      const dataUrl = `data:image/png;base64,${stagedBase64}`;
-
-      // Get staged image dimensions
       const img = new Image();
       await new Promise<void>((resolve, reject) => {
         img.onload = () => resolve();
@@ -231,15 +358,14 @@ const ImageEditorPanel: React.FC<Props> = ({
         img.src = dataUrl;
       });
 
-      // Create File object
       const blob = await fetch(dataUrl).then(r => r.blob());
-      const file = new File([blob], `staged_${Date.now()}.png`, { type: 'image/png' });
+      const file = new File([blob], `nobg_${selectedImage.fileName}`, { type: 'image/png' });
 
       const newImage: UploadedImage = {
         id: crypto.randomUUID(),
         file,
         dataUrl,
-        fileName: `staged_${Date.now()}.png`,
+        fileName: `nobg_${selectedImage.fileName}`,
         mimeType: 'image/png',
         width: img.width,
         height: img.height,
@@ -249,18 +375,90 @@ const ImageEditorPanel: React.FC<Props> = ({
 
       onImageAdd(newImage);
       setSelectedImage(newImage);
-
-      // Clear form
-      setMoodText('');
-      setMoodImage(null);
-      setSelectedProductImage(null);
     } catch (error) {
-      console.error('Failed to generate product staging:', error);
-      setEditError(error instanceof Error ? error.message : '제품 연출샷 생성 실패');
+      console.error('Failed to remove background:', error);
+      setEditError(error instanceof Error ? error.message : '배경 제거 실패');
     } finally {
-      setIsGeneratingStaging(false);
+      setIsRemovingBackground(false);
     }
-  }, [selectedProductImage, moodReferenceType, moodText, moodImage, onImageAdd]);
+  }, [selectedImage, onImageAdd]);
+
+  const handleWatermarkUpload = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const dataUrl = await fileToBase64(file);
+      const { base64, mimeType } = parseDataUrl(dataUrl);
+      setWatermarkLogo({ dataUrl, base64, mimeType });
+    } catch (error) {
+      console.error('Failed to upload watermark:', error);
+      setEditError('워터마크 업로드 실패');
+    }
+  }, []);
+
+  const handleAddWatermark = useCallback(async () => {
+    if (!selectedImage || !watermarkLogo) {
+      setEditError('이미지와 워터마크를 모두 선택해주세요');
+      return;
+    }
+
+    setIsAddingWatermark(true);
+    setEditError(null);
+
+    try {
+      const { base64, mimeType } = parseDataUrl(selectedImage.dataUrl);
+      const watermarkedBase64 = await addWatermark(
+        base64,
+        mimeType,
+        watermarkLogo.base64,
+        watermarkLogo.mimeType,
+        watermarkPosition
+      );
+      const dataUrl = `data:image/png;base64,${watermarkedBase64}`;
+
+      const img = new Image();
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = reject;
+        img.src = dataUrl;
+      });
+
+      const blob = await fetch(dataUrl).then(r => r.blob());
+      const file = new File([blob], `watermarked_${selectedImage.fileName}`, { type: 'image/png' });
+
+      const newImage: UploadedImage = {
+        id: crypto.randomUUID(),
+        file,
+        dataUrl,
+        fileName: `watermarked_${selectedImage.fileName}`,
+        mimeType: 'image/png',
+        width: img.width,
+        height: img.height,
+        sizeInBytes: blob.size,
+        uploadedAt: new Date(),
+      };
+
+      onImageAdd(newImage);
+      setSelectedImage(newImage);
+    } catch (error) {
+      console.error('Failed to add watermark:', error);
+      setEditError(error instanceof Error ? error.message : '워터마크 추가 실패');
+    } finally {
+      setIsAddingWatermark(false);
+    }
+  }, [selectedImage, watermarkLogo, watermarkPosition, onImageAdd]);
+
+  const toggleProductSelection = useCallback((image: UploadedImage) => {
+    setSelectedProductImages(prev => {
+      const exists = prev.find(img => img.id === image.id);
+      if (exists) {
+        return prev.filter(img => img.id !== image.id);
+      } else {
+        return [...prev, image];
+      }
+    });
+  }, []);
 
   return (
     <div className="flex flex-col h-full">
@@ -303,14 +501,66 @@ const ImageEditorPanel: React.FC<Props> = ({
           </button>
         </div>
 
-        {/* Product Staging */}
+        {/* Product Staging - ENHANCED */}
         <div className="mb-6 p-4 bg-gradient-to-br from-orange-900/30 to-pink-900/30 border-2 border-orange-500/50 rounded-lg">
-          <h4 className="text-sm font-bold text-orange-300 mb-3">🎬 제품 연출샷 생성</h4>
+          <h4 className="text-sm font-bold text-orange-300 mb-3">🎬 제품 연출샷 생성 (강화버전)</h4>
+
+          {/* Mode Selection */}
+          <div className="mb-3 flex gap-2">
+            <button
+              onClick={() => setIsABTestMode(!isABTestMode)}
+              className={`flex-1 px-3 py-2 text-xs rounded-md transition-colors ${
+                isABTestMode ? 'bg-purple-600 text-white' : 'bg-gray-700 text-gray-300'
+              }`}
+            >
+              {isABTestMode ? '✓ A/B 테스트 (3장)' : 'A/B 테스트'}
+            </button>
+            <button
+              onClick={() => setIsBatchMode(!isBatchMode)}
+              className={`flex-1 px-3 py-2 text-xs rounded-md transition-colors ${
+                isBatchMode ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300'
+              }`}
+            >
+              {isBatchMode ? '✓ 일괄 처리' : '일괄 처리'}
+            </button>
+          </div>
+
+          {/* SNS Aspect Ratio Selection */}
+          <div className="mb-3">
+            <label className="text-xs text-gray-300 mb-1 block">📱 SNS 최적화 비율</label>
+            <div className="grid grid-cols-3 gap-2">
+              {Object.entries(ASPECT_RATIOS).map(([key, ratio]) => (
+                <button
+                  key={key}
+                  onClick={() => setSelectedAspectRatio(key as AspectRatioKey)}
+                  className={`px-2 py-1 text-xs rounded-md transition-colors ${
+                    selectedAspectRatio === key
+                      ? 'bg-pink-600 text-white'
+                      : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                  }`}
+                  title={ratio.description}
+                >
+                  {ratio.icon} {ratio.ratio}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-gray-500 mt-1">{ASPECT_RATIOS[selectedAspectRatio].description}</p>
+          </div>
 
           {/* Mood Reference Type Selection */}
           <div className="mb-3">
             <label className="text-xs text-gray-300 mb-1 block">분위기 참조 방법</label>
             <div className="flex gap-2">
+              <button
+                onClick={() => setMoodReferenceType('preset')}
+                className={`flex-1 px-3 py-2 text-sm rounded-md transition-colors ${
+                  moodReferenceType === 'preset'
+                    ? 'bg-orange-600 text-white'
+                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                }`}
+              >
+                ⭐ 프리셋
+              </button>
               <button
                 onClick={() => setMoodReferenceType('text')}
                 className={`flex-1 px-3 py-2 text-sm rounded-md transition-colors ${
@@ -319,7 +569,7 @@ const ImageEditorPanel: React.FC<Props> = ({
                     : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
                 }`}
               >
-                📝 텍스트 설명
+                📝 텍스트
               </button>
               <button
                 onClick={() => setMoodReferenceType('image')}
@@ -329,13 +579,36 @@ const ImageEditorPanel: React.FC<Props> = ({
                     : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
                 }`}
               >
-                🖼️ 참조 이미지
+                🖼️ 이미지
               </button>
             </div>
           </div>
 
-          {/* Mood Reference Input */}
-          {moodReferenceType === 'text' ? (
+          {/* Mood Presets */}
+          {moodReferenceType === 'preset' && (
+            <div className="mb-3">
+              <label className="text-xs text-gray-300 mb-1 block">분위기 프리셋 선택</label>
+              <div className="grid grid-cols-2 gap-2 max-h-60 overflow-y-auto">
+                {Object.entries(MOOD_PRESETS).map(([key, preset]) => (
+                  <button
+                    key={key}
+                    onClick={() => setSelectedMoodPreset(key as MoodPresetKey)}
+                    className={`px-3 py-2 text-left rounded-md transition-colors ${
+                      selectedMoodPreset === key
+                        ? 'bg-gradient-to-r from-orange-600 to-pink-600 text-white'
+                        : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                    }`}
+                  >
+                    <div className="text-sm font-semibold">{preset.icon} {preset.label}</div>
+                    <div className="text-xs opacity-75 mt-1">{preset.description}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Mood Text Input */}
+          {moodReferenceType === 'text' && (
             <div className="mb-3">
               <label className="text-xs text-gray-300 mb-1 block">원하는 분위기 설명</label>
               <textarea
@@ -345,7 +618,10 @@ const ImageEditorPanel: React.FC<Props> = ({
                 className="w-full px-3 py-2 bg-gray-900 border border-gray-600 rounded-md text-white text-sm min-h-20"
               />
             </div>
-          ) : (
+          )}
+
+          {/* Mood Image Upload */}
+          {moodReferenceType === 'image' && (
             <div className="mb-3">
               <label className="text-xs text-gray-300 mb-1 block">분위기 참조 이미지</label>
               {moodImage ? (
@@ -376,8 +652,10 @@ const ImageEditorPanel: React.FC<Props> = ({
 
           {/* Product Image Selection */}
           <div className="mb-3">
-            <label className="text-xs text-gray-300 mb-1 block">제품 이미지 (누끼샷 권장)</label>
-            {selectedProductImage ? (
+            <label className="text-xs text-gray-300 mb-1 block">
+              제품 이미지 (누끼샷 권장) {isBatchMode && `- ${selectedProductImages.length}개 선택됨`}
+            </label>
+            {!isBatchMode && selectedProductImage ? (
               <div className="relative">
                 <img src={selectedProductImage.dataUrl} alt={selectedProductImage.fileName} className="w-full h-32 object-contain bg-black/20 rounded-md" />
                 <div className="absolute top-2 left-2 px-2 py-1 bg-green-600 text-white text-xs rounded-md">
@@ -392,15 +670,26 @@ const ImageEditorPanel: React.FC<Props> = ({
               </div>
             ) : (
               <div className="bg-gray-900 border border-gray-600 rounded-md p-3">
-                <p className="text-xs text-gray-400 mb-2">라이브러리에서 제품 이미지를 선택하세요</p>
+                <p className="text-xs text-gray-400 mb-2">
+                  {isBatchMode ? '여러 제품 선택 (클릭)' : '라이브러리에서 제품 이미지를 선택하세요'}
+                </p>
                 <div className="grid grid-cols-3 gap-2 max-h-40 overflow-y-auto">
                   {images.map((image) => (
                     <div
                       key={image.id}
-                      onClick={() => setSelectedProductImage(image)}
-                      className="relative aspect-square bg-black/20 rounded-md overflow-hidden cursor-pointer border-2 border-transparent hover:border-orange-500 transition-colors"
+                      onClick={() => isBatchMode ? toggleProductSelection(image) : setSelectedProductImage(image)}
+                      className={`relative aspect-square bg-black/20 rounded-md overflow-hidden cursor-pointer border-2 transition-colors ${
+                        (isBatchMode && selectedProductImages.find(img => img.id === image.id))
+                          ? 'border-green-500'
+                          : 'border-transparent hover:border-orange-500'
+                      }`}
                     >
                       <img src={image.dataUrl} alt={image.fileName} className="w-full h-full object-cover" />
+                      {isBatchMode && selectedProductImages.find(img => img.id === image.id) && (
+                        <div className="absolute top-1 right-1 w-5 h-5 bg-green-600 rounded-full flex items-center justify-center text-white text-xs">
+                          ✓
+                        </div>
+                      )}
                     </div>
                   ))}
                   {images.length === 0 && (
@@ -419,8 +708,32 @@ const ImageEditorPanel: React.FC<Props> = ({
             disabled={isGeneratingStaging}
             className="w-full px-4 py-3 bg-gradient-to-r from-orange-600 to-pink-600 hover:from-orange-700 hover:to-pink-700 text-white font-bold rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-all"
           >
-            {isGeneratingStaging ? '🎬 연출샷 생성 중...' : '🎬 제품 연출샷 생성하기'}
+            {isGeneratingStaging
+              ? '🎬 연출샷 생성 중...'
+              : isABTestMode
+                ? '🎬 A/B 테스트 3종 생성'
+                : isBatchMode
+                  ? `🎬 ${selectedProductImages.length}개 일괄 생성`
+                  : '🎬 제품 연출샷 생성하기'
+            }
           </button>
+
+          {/* A/B Test Results */}
+          {abTestResults.length > 0 && (
+            <div className="mt-3">
+              <label className="text-xs text-green-400 mb-1 block">✓ A/B 테스트 결과 (3종)</label>
+              <div className="grid grid-cols-3 gap-2">
+                {abTestResults.map((result, idx) => (
+                  <div key={idx} className="relative aspect-square bg-black/20 rounded-md overflow-hidden">
+                    <img src={result} alt={`Variation ${idx + 1}`} className="w-full h-full object-cover" />
+                    <div className="absolute bottom-1 left-1 px-2 py-0.5 bg-purple-600 text-white text-xs rounded">
+                      V{idx + 1}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Selected Image Preview */}
@@ -452,6 +765,124 @@ const ImageEditorPanel: React.FC<Props> = ({
                 </button>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* Background Removal */}
+        {selectedImage && (
+          <div className="mb-6 p-4 bg-gradient-to-br from-cyan-900/30 to-blue-900/30 border-2 border-cyan-500/50 rounded-lg">
+            <h4 className="text-sm font-bold text-cyan-300 mb-2">✂️ 자동 배경 제거</h4>
+            <p className="text-xs text-gray-400 mb-3">
+              AI가 자동으로 배경을 제거하고 투명 PNG로 변환합니다
+            </p>
+            <button
+              onClick={handleRemoveBackground}
+              disabled={isRemovingBackground}
+              className="w-full px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 text-white font-semibold rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isRemovingBackground ? '✂️ 배경 제거 중...' : '✂️ 배경 제거하기'}
+            </button>
+          </div>
+        )}
+
+        {/* Watermark */}
+        {selectedImage && (
+          <div className="mb-6 p-4 bg-gradient-to-br from-indigo-900/30 to-purple-900/30 border-2 border-indigo-500/50 rounded-lg">
+            <h4 className="text-sm font-bold text-indigo-300 mb-3">🏷️ 워터마크/로고 추가</h4>
+
+            {/* Logo Upload */}
+            <div className="mb-3">
+              <label className="text-xs text-gray-300 mb-1 block">로고 이미지</label>
+              {watermarkLogo ? (
+                <div className="relative">
+                  <img src={watermarkLogo.dataUrl} alt="Watermark logo" className="w-20 h-20 object-contain bg-black/20 rounded-md mx-auto" />
+                  <button
+                    onClick={() => setWatermarkLogo(null)}
+                    className="absolute top-0 right-0 px-2 py-1 bg-red-600 hover:bg-red-700 text-white text-xs rounded-md"
+                  >
+                    삭제
+                  </button>
+                </div>
+              ) : (
+                <label className="block cursor-pointer">
+                  <div className="px-4 py-3 bg-gray-800 border-2 border-dashed border-gray-600 hover:border-indigo-500 rounded-md text-center text-sm text-gray-400 transition-colors">
+                    📤 로고 업로드
+                  </div>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleWatermarkUpload}
+                    className="hidden"
+                  />
+                </label>
+              )}
+            </div>
+
+            {/* Position Selection */}
+            <div className="mb-3">
+              <label className="text-xs text-gray-300 mb-1 block">위치 선택</label>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  onClick={() => setWatermarkPosition('top-left')}
+                  className={`px-2 py-1 text-xs rounded-md transition-colors ${
+                    watermarkPosition === 'top-left'
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  }`}
+                >
+                  ↖️ 좌상
+                </button>
+                <button
+                  onClick={() => setWatermarkPosition('top-right')}
+                  className={`px-2 py-1 text-xs rounded-md transition-colors ${
+                    watermarkPosition === 'top-right'
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  }`}
+                >
+                  ↗️ 우상
+                </button>
+                <button
+                  onClick={() => setWatermarkPosition('center')}
+                  className={`px-2 py-1 text-xs rounded-md transition-colors ${
+                    watermarkPosition === 'center'
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  }`}
+                >
+                  ⭕ 중앙
+                </button>
+                <button
+                  onClick={() => setWatermarkPosition('bottom-left')}
+                  className={`px-2 py-1 text-xs rounded-md transition-colors ${
+                    watermarkPosition === 'bottom-left'
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  }`}
+                >
+                  ↙️ 좌하
+                </button>
+                <button
+                  onClick={() => setWatermarkPosition('bottom-right')}
+                  className={`px-2 py-1 text-xs rounded-md transition-colors ${
+                    watermarkPosition === 'bottom-right'
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  }`}
+                >
+                  ↘️ 우하
+                </button>
+              </div>
+            </div>
+
+            {/* Add Watermark Button */}
+            <button
+              onClick={handleAddWatermark}
+              disabled={isAddingWatermark || !watermarkLogo}
+              className="w-full px-4 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-semibold rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isAddingWatermark ? '🏷️ 워터마크 추가 중...' : '🏷️ 워터마크 추가하기'}
+            </button>
           </div>
         )}
 
