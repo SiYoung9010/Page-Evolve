@@ -43,8 +43,8 @@ interface PageEvolveContextType {
   setReferences: React.Dispatch<React.SetStateAction<Reference[]>>;
 
   // UI State
-  activeTab: 'suggestions' | 'images' | 'seo' | 'references' | 'feedback' | 'product' | 'cro';
-  setActiveTab: React.Dispatch<React.SetStateAction<'suggestions' | 'images' | 'seo' | 'references' | 'feedback' | 'product' | 'cro'>>;
+  activeTab: 'suggestions' | 'images' | 'seo' | 'references' | 'feedback' | 'product' | 'cro' | 'image-editor';
+  setActiveTab: React.Dispatch<React.SetStateAction<'suggestions' | 'images' | 'seo' | 'references' | 'feedback' | 'product' | 'cro' | 'image-editor'>>;
   showEditor: boolean;
   setShowEditor: React.Dispatch<React.SetStateAction<boolean>>;
   error: string | null;
@@ -100,7 +100,7 @@ export const PageEvolveProvider: React.FC<PageEvolveProviderProps> = ({ children
   const [applyingId, setApplyingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const [activeTab, setActiveTab] = useState<'suggestions' | 'images' | 'seo' | 'references' | 'feedback' | 'product' | 'cro'>('suggestions');
+  const [activeTab, setActiveTab] = useState<'suggestions' | 'images' | 'seo' | 'references' | 'feedback' | 'product' | 'cro' | 'image-editor'>('suggestions');
   const [seoAnalysis, setSeoAnalysis] = useState<SeoAnalysis | null>(null);
   const [isAnalyzingSeo, setIsAnalyzingSeo] = useState(false);
   const [croAnalysis, setCroAnalysis] = useState<CroAnalysisResult | null>(null);

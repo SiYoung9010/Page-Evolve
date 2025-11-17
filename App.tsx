@@ -10,6 +10,7 @@ import SlicingControls from './components/SlicingControls';
 import EnhancedFeedbackPanel from './components/EnhancedFeedbackPanel';
 import ProductInfoForm from './components/ProductInfoForm';
 import CroChecklistPanel from './components/CroChecklistPanel';
+import ImageEditorPanel from './components/ImageEditorPanel';
 import { analyzeHtml, applyFeedbackToHtml, generateFeedbackSuggestions } from './services/geminiService';
 import { applySuggestion } from './services/htmlApplier';
 import { analyzeSeo } from './services/seoAnalyzer';
@@ -541,7 +542,7 @@ export default function App() {
           <div className="flex border-b border-gray-700 shrink-0">
             <button onClick={() => setActiveTab('suggestions')} className={`flex-1 p-3 text-sm font-bold transition-colors ${activeTab === 'suggestions' ? 'bg-gray-900 text-purple-400 border-b-2 border-purple-400' : 'text-gray-400 hover:bg-gray-700'}`}>💡 Suggestions</button>
             <button onClick={() => setActiveTab('product')} className={`flex-1 p-3 text-sm font-bold transition-colors ${activeTab === 'product' ? 'bg-gray-900 text-orange-400 border-b-2 border-orange-400' : 'text-gray-400 hover:bg-gray-700'}`}>🛍️ 제품정보</button>
-            <button onClick={() => setActiveTab('images')} className={`flex-1 p-3 text-sm font-bold transition-colors ${activeTab === 'images' ? 'bg-gray-900 text-purple-400 border-b-2 border-purple-400' : 'text-gray-400 hover:bg-gray-700'}`}>🖼️ Images ({images.length})</button>
+            <button onClick={() => setActiveTab('image-editor')} className={`flex-1 p-3 text-sm font-bold transition-colors ${activeTab === 'image-editor' ? 'bg-gray-900 text-pink-400 border-b-2 border-pink-400' : 'text-gray-400 hover:bg-gray-700'}`}>🎨 Image Studio ({images.length})</button>
             <button onClick={() => setActiveTab('feedback')} className={`flex-1 p-3 text-sm font-bold transition-colors ${activeTab === 'feedback' ? 'bg-gray-900 text-blue-400 border-b-2 border-blue-400' : 'text-gray-400 hover:bg-gray-700'}`}>✍️ 내 피드백</button>
             <button onClick={() => setActiveTab('cro')} className={`flex-1 p-3 text-sm font-bold transition-colors ${activeTab === 'cro' ? 'bg-gray-900 text-green-400 border-b-2 border-green-400' : 'text-gray-400 hover:bg-gray-700'}`}>
               🎯 CRO
@@ -569,12 +570,20 @@ export default function App() {
                 isGenerating={isGeneratingFromProduct}
               />
             )}
-            {activeTab === 'images' && (
-              <div>
-                <ImageUploader onUpload={uploadImages} isUploading={isUploading} />
-                {(uploadError || (error && activeTab === 'images')) && <div className="mx-4 mb-4 p-3 bg-red-900/50 border border-red-500 rounded-lg text-red-200 text-sm">{uploadError || error}</div>}
-                <ImageLibrary images={images} analyzingImageId={analyzingImageId} onAnalyze={analyzeImage} onInsert={handleImageInsert} onDelete={removeImage} />
-              </div>
+            {activeTab === 'image-editor' && (
+              <ImageEditorPanel
+                images={images}
+                onImageAdd={(image) => {
+                  const newImages = [...images, image];
+                  localStorage.setItem('uploadedImages', JSON.stringify(newImages));
+                }}
+                onImageUpdate={(id, updates) => {
+                  const newImages = images.map(img => img.id === id ? { ...img, ...updates } : img);
+                  localStorage.setItem('uploadedImages', JSON.stringify(newImages));
+                }}
+                onImageRemove={removeImage}
+                onInsertImage={handleImageInsert}
+              />
             )}
             {activeTab === 'feedback' && (
               <EnhancedFeedbackPanel
