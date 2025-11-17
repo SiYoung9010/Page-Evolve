@@ -8,15 +8,21 @@ import SeoPanel from './components/SeoPanel';
 import ReferencePanel from './components/ReferencePanel';
 import SlicingControls from './components/SlicingControls';
 import EnhancedFeedbackPanel from './components/EnhancedFeedbackPanel';
+import ProductInfoForm from './components/ProductInfoForm';
+import CroChecklistPanel from './components/CroChecklistPanel';
 import { analyzeHtml, applyFeedbackToHtml, generateFeedbackSuggestions } from './services/geminiService';
 import { applySuggestion } from './services/htmlApplier';
 import { analyzeSeo } from './services/seoAnalyzer';
+import { analyzeCro } from './services/croAnalyzer';
 import { createProjectData, loadProjectFromFile, downloadProject } from './services/projectService';
 import { exportPreviewAsImage, exportFullPageAsImage } from './services/exportService';
+import { generateProductHTML } from './services/productHtmlGenerator';
 import { useImageUpload } from './hooks/useImageUpload';
 import { usePageEvolve } from './contexts/PageEvolveContext';
 import { useFeedback } from './contexts/FeedbackContext';
 import { Suggestion, AnalysisResult, ImagePosition, Reference, ProjectData, HtmlHistory } from './types';
+import { ProductInfo } from './types/product';
+import { CroCheckItem } from './types/cro';
 import { CONFIG } from './config/constants';
 
 export default function App() {
@@ -41,6 +47,10 @@ export default function App() {
     setSeoAnalysis,
     isAnalyzingSeo,
     setIsAnalyzingSeo,
+    croAnalysis,
+    setCroAnalysis,
+    isAnalyzingCro,
+    setIsAnalyzingCro,
     references,
     setReferences,
     activeTab,
@@ -57,6 +67,8 @@ export default function App() {
     setIsSlicingMode,
     slicePositions,
     setSlicePositions,
+    isGeneratingFromProduct,
+    setIsGeneratingFromProduct,
   } = usePageEvolve();
 
   const {
@@ -156,6 +168,20 @@ export default function App() {
       setIsAnalyzingSeo(false);
     }
   }, [currentHtml, setIsAnalyzingSeo, setError, setSeoAnalysis, setActiveTab]);
+
+  const handleCroAnalyze = useCallback(() => {
+    setIsAnalyzingCro(true);
+    setError(null);
+    try {
+      const analysis = analyzeCro(currentHtml);
+      setCroAnalysis(analysis);
+      setActiveTab('cro');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'CRO analysis failed');
+    } finally {
+      setIsAnalyzingCro(false);
+    }
+  }, [currentHtml, setIsAnalyzingCro, setError, setCroAnalysis, setActiveTab]);
 
   const handleApply = useCallback(async (suggestion: Suggestion) => {
     setApplyingId(suggestion.id);
@@ -414,6 +440,26 @@ export default function App() {
     }
   }, [projectName, slicePositions, handleCancelSlicing, setIsExporting]);
 
+  const handleGenerateFromProduct = useCallback(async (productInfo: ProductInfo) => {
+    setIsGeneratingFromProduct(true);
+    setError(null);
+
+    try {
+      // Generate HTML from product info
+      const generatedHtml = generateProductHTML(productInfo);
+
+      // Add to history
+      addHistory(generatedHtml, `Generated product page: ${productInfo.name}`);
+
+      // Switch to preview to see results
+      setActiveTab('suggestions');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to generate product page');
+    } finally {
+      setIsGeneratingFromProduct(false);
+    }
+  }, [addHistory, setActiveTab, setError, setIsGeneratingFromProduct]);
+
   return (
     <div className="flex flex-col h-screen bg-gray-900 text-white" onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
       {isDragging && (
@@ -494,8 +540,13 @@ export default function App() {
         <div className="flex flex-col bg-gray-800 min-h-0">
           <div className="flex border-b border-gray-700 shrink-0">
             <button onClick={() => setActiveTab('suggestions')} className={`flex-1 p-3 text-sm font-bold transition-colors ${activeTab === 'suggestions' ? 'bg-gray-900 text-purple-400 border-b-2 border-purple-400' : 'text-gray-400 hover:bg-gray-700'}`}>💡 Suggestions</button>
+            <button onClick={() => setActiveTab('product')} className={`flex-1 p-3 text-sm font-bold transition-colors ${activeTab === 'product' ? 'bg-gray-900 text-orange-400 border-b-2 border-orange-400' : 'text-gray-400 hover:bg-gray-700'}`}>🛍️ 제품정보</button>
             <button onClick={() => setActiveTab('images')} className={`flex-1 p-3 text-sm font-bold transition-colors ${activeTab === 'images' ? 'bg-gray-900 text-purple-400 border-b-2 border-purple-400' : 'text-gray-400 hover:bg-gray-700'}`}>🖼️ Images ({images.length})</button>
             <button onClick={() => setActiveTab('feedback')} className={`flex-1 p-3 text-sm font-bold transition-colors ${activeTab === 'feedback' ? 'bg-gray-900 text-blue-400 border-b-2 border-blue-400' : 'text-gray-400 hover:bg-gray-700'}`}>✍️ 내 피드백</button>
+            <button onClick={() => setActiveTab('cro')} className={`flex-1 p-3 text-sm font-bold transition-colors ${activeTab === 'cro' ? 'bg-gray-900 text-green-400 border-b-2 border-green-400' : 'text-gray-400 hover:bg-gray-700'}`}>
+              🎯 CRO
+              {croAnalysis && <span className={`font-bold ml-1 ${croAnalysis.score >= 80 ? 'text-green-400' : croAnalysis.score >= 60 ? 'text-yellow-400' : 'text-red-400'}`}>({croAnalysis.score})</span>}
+            </button>
             <button onClick={() => setActiveTab('seo')} className={`flex-1 p-3 text-sm font-bold transition-colors ${activeTab === 'seo' ? 'bg-gray-900 text-green-400 border-b-2 border-green-400' : 'text-gray-400 hover:bg-gray-700'}`}>
               📊 SEO
               {seoAnalysis && <span className={`font-bold ml-1 ${seoAnalysis.score >= 80 ? 'text-green-400' : seoAnalysis.score > 50 ? 'text-yellow-400' : 'text-red-400'}`}>({seoAnalysis.score})</span>}
@@ -511,6 +562,12 @@ export default function App() {
                 {!isAnalyzing && suggestions.length === 0 && <div className="text-center text-gray-500 pt-8 space-y-3"><p>Click "🤖 AI Analyze" to get improvement suggestions.</p></div>}
                 {suggestions.map(suggestion => <AiSuggestionCard key={suggestion.id} suggestion={suggestion} onApply={handleApply} isApplying={applyingId === suggestion.id} />)}
               </div>
+            )}
+            {activeTab === 'product' && (
+              <ProductInfoForm
+                onGenerateHTML={handleGenerateFromProduct}
+                isGenerating={isGeneratingFromProduct}
+              />
             )}
             {activeTab === 'images' && (
               <div>
@@ -532,6 +589,13 @@ export default function App() {
                 aiSuggestions={aiSuggestions}
                 onGenerateSuggestions={handleGenerateFeedbackSuggestions}
                 isGeneratingSuggestions={isGeneratingSuggestions}
+              />
+            )}
+            {activeTab === 'cro' && (
+              <CroChecklistPanel
+                analysis={croAnalysis}
+                isAnalyzing={isAnalyzingCro}
+                onAnalyze={handleCroAnalyze}
               />
             )}
             {activeTab === 'seo' && <SeoPanel analysis={seoAnalysis} isAnalyzing={isAnalyzingSeo} />}

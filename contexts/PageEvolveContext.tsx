@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
 import { Suggestion, SeoAnalysis, Reference, ProjectData } from '../types';
+import { CroAnalysisResult } from '../types/cro';
 import { useHtmlHistory } from '../hooks/useHtmlHistory';
 import { createProjectData, loadProjectFromFile, downloadProject } from '../services/projectService';
 import { SAMPLE_HTML_INPUT } from '../config/constants';
@@ -31,17 +32,27 @@ interface PageEvolveContextType {
   isAnalyzingSeo: boolean;
   setIsAnalyzingSeo: React.Dispatch<React.SetStateAction<boolean>>;
 
+  // CRO State
+  croAnalysis: CroAnalysisResult | null;
+  setCroAnalysis: React.Dispatch<React.SetStateAction<CroAnalysisResult | null>>;
+  isAnalyzingCro: boolean;
+  setIsAnalyzingCro: React.Dispatch<React.SetStateAction<boolean>>;
+
   // References State
   references: Reference[];
   setReferences: React.Dispatch<React.SetStateAction<Reference[]>>;
 
   // UI State
-  activeTab: 'suggestions' | 'images' | 'seo' | 'references' | 'feedback';
-  setActiveTab: React.Dispatch<React.SetStateAction<'suggestions' | 'images' | 'seo' | 'references' | 'feedback'>>;
+  activeTab: 'suggestions' | 'images' | 'seo' | 'references' | 'feedback' | 'product' | 'cro';
+  setActiveTab: React.Dispatch<React.SetStateAction<'suggestions' | 'images' | 'seo' | 'references' | 'feedback' | 'product' | 'cro'>>;
   showEditor: boolean;
   setShowEditor: React.Dispatch<React.SetStateAction<boolean>>;
   error: string | null;
   setError: React.Dispatch<React.SetStateAction<string | null>>;
+
+  // Product Form State
+  isGeneratingFromProduct: boolean;
+  setIsGeneratingFromProduct: React.Dispatch<React.SetStateAction<boolean>>;
 
   // Project Management
   projectName: string;
@@ -89,9 +100,11 @@ export const PageEvolveProvider: React.FC<PageEvolveProviderProps> = ({ children
   const [applyingId, setApplyingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const [activeTab, setActiveTab] = useState<'suggestions' | 'images' | 'seo' | 'references' | 'feedback'>('suggestions');
+  const [activeTab, setActiveTab] = useState<'suggestions' | 'images' | 'seo' | 'references' | 'feedback' | 'product' | 'cro'>('suggestions');
   const [seoAnalysis, setSeoAnalysis] = useState<SeoAnalysis | null>(null);
   const [isAnalyzingSeo, setIsAnalyzingSeo] = useState(false);
+  const [croAnalysis, setCroAnalysis] = useState<CroAnalysisResult | null>(null);
+  const [isAnalyzingCro, setIsAnalyzingCro] = useState(false);
   const [showEditor, setShowEditor] = useState(true);
 
   const [projectName, setProjectName] = useState('Untitled Project');
@@ -100,6 +113,7 @@ export const PageEvolveProvider: React.FC<PageEvolveProviderProps> = ({ children
 
   const [isSlicingMode, setIsSlicingMode] = useState(false);
   const [slicePositions, setSlicePositions] = useState<number[]>([]);
+  const [isGeneratingFromProduct, setIsGeneratingFromProduct] = useState(false);
 
   const value: PageEvolveContextType = {
     currentHtml,
@@ -122,6 +136,10 @@ export const PageEvolveProvider: React.FC<PageEvolveProviderProps> = ({ children
     setSeoAnalysis,
     isAnalyzingSeo,
     setIsAnalyzingSeo,
+    croAnalysis,
+    setCroAnalysis,
+    isAnalyzingCro,
+    setIsAnalyzingCro,
     references,
     setReferences,
     activeTab,
@@ -138,6 +156,8 @@ export const PageEvolveProvider: React.FC<PageEvolveProviderProps> = ({ children
     setIsSlicingMode,
     slicePositions,
     setSlicePositions,
+    isGeneratingFromProduct,
+    setIsGeneratingFromProduct,
   };
 
   return <PageEvolveContext.Provider value={value}>{children}</PageEvolveContext.Provider>;
