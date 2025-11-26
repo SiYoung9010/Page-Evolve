@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { ProductInfo, DEFAULT_PRODUCT_INFO } from '../types/product';
+import SmartPasteInput from './SmartPasteInput';
+import { parseProductInfo } from '../services/geminiService';
 
 interface Props {
   onGenerateHTML: (productInfo: ProductInfo) => void;
@@ -9,6 +11,25 @@ interface Props {
 const ProductInfoForm: React.FC<Props> = ({ onGenerateHTML, isGenerating }) => {
   const [product, setProduct] = useState<ProductInfo>(DEFAULT_PRODUCT_INFO);
   const [activeSection, setActiveSection] = useState<'basic' | 'details' | 'trust' | 'purchase'>('basic');
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+  const handleSmartAnalyze = async (text: string, images: File[]) => {
+    setIsAnalyzing(true);
+    try {
+      const parsedInfo = await parseProductInfo(text, images);
+      setProduct(prev => ({
+        ...prev,
+        ...parsedInfo,
+        // Preserve existing reviews if AI didn't find any
+        reviews: parsedInfo.reviews.count > 0 ? parsedInfo.reviews : prev.reviews
+      }));
+      alert('제품 정보가 자동으로 입력되었습니다! 내용을 확인해주세요.');
+    } catch (error) {
+      alert('분석에 실패했습니다: ' + (error instanceof Error ? error.message : 'Unknown error'));
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
 
   const handleAddFeature = () => {
     setProduct(prev => ({
@@ -65,6 +86,8 @@ const ProductInfoForm: React.FC<Props> = ({ onGenerateHTML, isGenerating }) => {
 
   return (
     <div className="h-full flex flex-col p-4 overflow-auto">
+      <SmartPasteInput onAnalyze={handleSmartAnalyze} isAnalyzing={isAnalyzing} />
+
       <div className="mb-4">
         <h2 className="text-lg font-bold text-gray-200 mb-2">📦 제품 정보 입력</h2>
         <p className="text-xs text-gray-400">
@@ -83,11 +106,10 @@ const ProductInfoForm: React.FC<Props> = ({ onGenerateHTML, isGenerating }) => {
           <button
             key={section.id}
             onClick={() => setActiveSection(section.id as any)}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all ${
-              activeSection === section.id
+            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all ${activeSection === section.id
                 ? 'bg-purple-600 text-white'
                 : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-            }`}
+              }`}
           >
             {section.icon} {section.label}
           </button>
@@ -217,11 +239,10 @@ const ProductInfoForm: React.FC<Props> = ({ onGenerateHTML, isGenerating }) => {
                   <button
                     key={badge}
                     onClick={() => toggleBadge(badge)}
-                    className={`px-3 py-1.5 rounded text-xs font-semibold transition-all ${
-                      product.badges.includes(badge)
+                    className={`px-3 py-1.5 rounded text-xs font-semibold transition-all ${product.badges.includes(badge)
                         ? 'bg-purple-600 text-white'
                         : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                    }`}
+                      }`}
                   >
                     {badge === 'bestseller' && '베스트셀러'}
                     {badge === 'new' && '신제품'}
